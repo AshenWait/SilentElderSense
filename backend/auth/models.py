@@ -1,7 +1,8 @@
-from sqlalchemy import create_engine, Column, Integer, String, DateTime
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
+import bcrypt
 
 Base = declarative_base()
 
@@ -13,17 +14,16 @@ class User(Base):
     username = Column(String(80), unique=True, nullable=False)
     email = Column(String(120), unique=True, nullable=False)
     password_hash = Column(String(128), nullable=False)
+    is_admin = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     def set_password(self, password):
         """密码加密"""
-        import hashlib
-        self.password_hash = hashlib.sha256(password.encode()).hexdigest()
+        self.password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
     def check_password(self, password):
         """验证密码"""
-        import hashlib
-        return self.password_hash == hashlib.sha256(password.encode()).hexdigest()
+        return bcrypt.checkpw(password.encode(), self.password_hash.encode())
 
 
 # 数据库引擎和会话
