@@ -44,7 +44,8 @@ async def login():
         return jsonify({
             'message': '登录成功',
             'user_id': user.id,
-            'username': user.username
+            'username': user.username,
+            'role': user.role
         }), 200
     else:
         return jsonify({'error': '用户名或密码错误'}), 401

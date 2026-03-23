@@ -46,6 +46,10 @@ class PersonContext:
     static_frames: int = 0
     static_start_time: Optional[float] = None
 
+    # 夜间异常检测
+    night_activity_count: int = 0           # 夜间活动次数
+    night_activity_history: deque = field(default_factory=lambda: deque(maxlen=100))  # 夜间活动记录 (timestamp,)
+
 
 @dataclass
 class SessionContext:
@@ -93,6 +97,12 @@ class SessionManager:
     # 人员追踪阈值
     IOU_MATCH_THRESHOLD = 0.3   # IoU 低于此值视为不同人
     PERSON_LOST_TIMEOUT = 2.0   # 超过此秒数未出现则清除该人的状态
+
+    # 夜间异常检测阈值
+    NIGHT_START_HOUR = 22       # 夜间开始时间（22:00）
+    NIGHT_END_HOUR = 6          # 夜间结束时间（06:00）
+    NIGHT_ACTIVITY_THRESHOLD = 5    # 夜间活动次数阈值
+    NIGHT_ACTIVITY_WINDOW = 3600    # 夜间活动统计窗口（秒，1小时）
 
     def __init__(self):
         self.sessions: Dict[str, SessionContext] = {}
@@ -162,6 +172,10 @@ class SessionManager:
                 events.append(event)
 
             event = self._check_static(pctx, person_id, timestamp, frame, person)
+            if event:
+                events.append(event)
+
+            event = self._check_night_abnormal(pctx, person_id, timestamp, frame)
             if event:
                 events.append(event)
 
@@ -288,6 +302,67 @@ class SessionManager:
                 )
                 pctx.last_event_time = timestamp
                 return event
+
+        return None
+
+    def _check_night_abnormal(self, pctx: PersonContext, person_id: int,
+                               timestamp: float, frame: np.ndarray = None) -> Optional[Event]:
+        """
+        夜间异常活动检测
+
+        检测逻辑：
+        1. 判断当前是否在夜间时段（22:00-06:00）
+        2. 记录夜间活动次数
+        3. 在统计窗口内活动次数超过阈值则触发告警
+        """
+        if timestamp - pctx.last_event_time < self.EVENT_COOLDOWN:
+            return None
+
+        # 判断是否在夜间时段
+        from datetime import datetime
+        dt = datetime.fromtimestamp(timestamp)
+        hour = dt.hour
+
+        is_night = hour >= self.NIGHT_START_HOUR or hour < self.NIGHT_END_HOUR
+
+        if not is_night:
+            # 非夜间时段，重置计数
+            pctx.night_activity_count = 0
+            pctx.night_activity_history.clear()
+            return None
+
+        # 记录夜间活动
+        pctx.night_activity_count += 1
+        pctx.night_activity_history.append((timestamp,))
+
+        # 清理过期的活动记录
+        cutoff = timestamp - self.NIGHT_ACTIVITY_WINDOW
+        while pctx.night_activity_history and pctx.night_activity_history[0][0] < cutoff:
+            pctx.night_activity_history.popleft()
+
+        # 检查是否超过阈值
+        recent_count = len(pctx.night_activity_history)
+        if recent_count >= self.NIGHT_ACTIVITY_THRESHOLD:
+            # 计算活动时间范围
+            if pctx.night_activity_history:
+                start_time = pctx.night_activity_history[0][0]
+            else:
+                start_time = timestamp
+
+            event = Event(
+                person_id=person_id,
+                event_type=EventType.NIGHT_ABNORMAL,
+                risk_level=RiskLevel.LOW,
+                start_time=start_time,
+                end_time=timestamp,
+                duration=timestamp - start_time,
+                frame_count=recent_count,
+                snapshot=frame.copy() if frame is not None else None
+            )
+            pctx.last_event_time = timestamp
+            # 触发后重置计数
+            pctx.night_activity_history.clear()
+            return event
 
         return None
 
