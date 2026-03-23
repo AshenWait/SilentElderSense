@@ -6,6 +6,7 @@ WebSocket 检测端点
     POST /api/session/close/<video_id> - 关闭会话
     WebSocket /ws/detect/<video_id>    - 实时帧检测
 """
+import base64
 import time
 import cv2
 import numpy as np
@@ -102,7 +103,6 @@ async def detect_ws(video_id: str):
                 frame = decode_jpeg(data)
             elif isinstance(data, str):
                 # 如果是 base64 编码的字符串
-                import base64
                 frame_bytes = base64.b64decode(data)
                 frame = decode_jpeg(frame_bytes)
             else:
@@ -122,6 +122,7 @@ async def detect_ws(video_id: str):
 
         except Exception as e:
             # 连接关闭或其他错误
+            print(f"WebSocket error: {e}")
             break
 
 

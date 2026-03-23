@@ -3,7 +3,7 @@
 """
 from datetime import datetime, time
 from typing import Optional, List
-from auth.models import get_db, engine
+from auth.models import get_db
 from .models import AlertConfig, AlertHistory, AlertLevel
 
 
@@ -44,14 +44,6 @@ class AlertService:
         'MEDIUM': '中风险',
         'LOW': '低风险'
     }
-
-    def __init__(self):
-        self._ensure_tables()
-
-    def _ensure_tables(self):
-        """确保表已创建"""
-        AlertConfig.metadata.create_all(engine)
-        AlertHistory.metadata.create_all(engine)
 
     def get_config(self, user_id: int) -> Optional[AlertConfig]:
         """获取用户告警配置"""

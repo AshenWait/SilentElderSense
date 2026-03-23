@@ -7,18 +7,12 @@
     GET  /api/events/<id>     - 获取事件详情
     PUT  /api/events/<id>     - 更新事件状态
 """
-import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from quart import Blueprint, request, jsonify
-from auth.models import get_db, Base, engine
+from auth.models import get_db
 from .models import Event
 
 events_bp = Blueprint('events', __name__)
-
-
-def init_events_table():
-    """初始化事件表"""
-    Event.metadata.create_all(engine)
 
 
 @events_bp.route('/api/events', methods=['POST'])
@@ -190,7 +184,6 @@ async def event_stats():
     user_id = request.args.get('user_id')
     days = int(request.args.get('days', 7))
 
-    from datetime import timedelta
     start_date = datetime.utcnow() - timedelta(days=days)
 
     query = db.query(Event).filter(Event.created_at >= start_date)

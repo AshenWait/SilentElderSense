@@ -8,6 +8,7 @@
     POST   /api/alerts/trigger           - 手动触发告警
     POST   /api/alerts/<id>/send         - 重发告警
 """
+from datetime import datetime, timedelta
 from quart import Blueprint, request, jsonify
 from auth.models import get_db
 from .models import AlertConfig, AlertHistory
@@ -220,7 +221,6 @@ async def alert_stats():
     user_id = request.args.get('user_id')
     days = int(request.args.get('days', 7))
 
-    from datetime import timedelta
     start_date = datetime.utcnow() - timedelta(days=days)
 
     query = db.query(AlertHistory).filter(AlertHistory.created_at >= start_date)
@@ -260,7 +260,3 @@ async def alert_stats():
             stats['failed_count'] += 1
 
     return jsonify(stats)
-
-
-# 导入 datetime 用于 stats
-from datetime import datetime, timedelta

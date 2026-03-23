@@ -12,6 +12,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from config import DATA_DIR
 from auth.models import Base, User
+# 导入所有模型，确保 Base.metadata 包含所有表定义
+from events.models import Event
+from alerts.models import AlertConfig, AlertHistory
 
 DB_NAME = "db.sqlite3"
 db_path = os.path.join(DATA_DIR, DB_NAME)
