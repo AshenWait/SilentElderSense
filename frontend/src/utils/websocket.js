@@ -1,17 +1,20 @@
 /**
  * WebSocket 实时视频流服务
  * 用于流式上传视频帧和接收实时检测结果
+ *
+ * 后端 WebSocket 接口: ws://localhost:5000/ws/detect/<video_id>
+ * 发送: JPEG 字节流或 base64 编码字符串
+ * 接收: JSON 检测结果
  */
 
 class VideoWebSocket {
   constructor() {
     this.ws = null
+    this.videoId = null
     this.isConnected = false
-    this.messageQueue = []
     this.reconnectAttempts = 0
     this.maxReconnectAttempts = 5
     this.reconnectDelay = 3000
-    this.onFrameCallback = null
     this.onDetectionCallback = null
     this.onErrorCallback = null
     this.onConnectCallback = null
@@ -20,9 +23,12 @@ class VideoWebSocket {
 
   /**
    * 连接 WebSocket
-   * @param {string} url WebSocket 地址
+   * @param {string} videoId 视频会话ID
    */
-  connect(url) {
+  connect(videoId) {
+    this.videoId = videoId
+    const url = `ws://127.0.0.1:5000/ws/detect/${videoId}`
+
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       console.log('WebSocket 已经连接')
       return
@@ -37,8 +43,6 @@ class VideoWebSocket {
       if (this.onConnectCallback) {
         this.onConnectCallback()
       }
-      // 处理消息队列
-      this.processMessageQueue()
     }
 
     this.ws.onmessage = (event) => {
@@ -63,8 +67,6 @@ class VideoWebSocket {
       if (this.onDisconnectCallback) {
         this.onDisconnectCallback()
       }
-      // 自动重连
-      this.attemptReconnect(url)
     }
   }
 
@@ -80,132 +82,58 @@ class VideoWebSocket {
   }
 
   /**
-   * 发送视频帧
-   * @param {string} frameData Base64 编码的图片数据
-   * @param {number} timestamp 时间戳
-   * @param {string} videoId 视频 ID
+   * 发送视频帧 (JPEG 字节流)
+   * @param {Blob|ArrayBuffer} frameData JPEG 格式的图片数据
    */
-  sendFrame(frameData, timestamp, videoId) {
-    const message = {
-      type: 'frame',
-      data: {
-        frame: frameData,
-        timestamp: timestamp,
-        videoId: videoId
-      }
-    }
-    this.sendMessage(message)
-  }
-
-  /**
-   * 开始视频流
-   * @param {string} videoId 视频 ID
-   * @param {object} options 配置选项
-   */
-  startVideoStream(videoId, options = {}) {
-    const message = {
-      type: 'start',
-      data: {
-        videoId: videoId,
-        options: options
-      }
-    }
-    this.sendMessage(message)
-  }
-
-  /**
-   * 停止视频流
-   * @param {string} videoId 视频 ID
-   */
-  stopVideoStream(videoId) {
-    const message = {
-      type: 'stop',
-      data: {
-        videoId: videoId
-      }
-    }
-    this.sendMessage(message)
-  }
-
-  /**
-   * 发送消息
-   * @param {object} message 消息对象
-   */
-  sendMessage(message) {
-    if (this.isConnected) {
-      try {
-        this.ws.send(JSON.stringify(message))
-      } catch (error) {
-        console.error('发送消息失败:', error)
-      }
+  sendFrame(frameData) {
+    if (this.isConnected && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(frameData)
     } else {
-      // 连接未建立时，将消息加入队列
-      this.messageQueue.push(message)
+      console.warn('WebSocket 未连接，无法发送帧数据')
     }
   }
 
   /**
-   * 处理消息队列
+   * 发送 Base64 编码的视频帧
+   * @param {string} base64Data Base64 编码的图片数据
    */
-  processMessageQueue() {
-    while (this.messageQueue.length > 0) {
-      const message = this.messageQueue.shift()
-      this.sendMessage(message)
+  sendBase64Frame(base64Data) {
+    if (this.isConnected && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(base64Data)
+    } else {
+      console.warn('WebSocket 未连接，无法发送帧数据')
     }
   }
 
   /**
    * 处理接收到的消息
    * @param {object} data 消息数据
+   *
+   * 后端返回格式:
+   * {
+   *   "detected": true,
+   *   "persons": [{ "person_id": 0, "class_name": "normal", "confidence": 0.95, "box": [x1, y1, x2, y2] }],
+   *   "events": [{ "person_id": 0, "event_type": "FALL", "risk_level": "HIGH", "duration": 1.5 }]
+   * }
    */
   handleMessage(data) {
-    switch (data.type) {
-      case 'frame':
-        // 处理处理后的帧
-        if (this.onFrameCallback) {
-          this.onFrameCallback(data.data)
-        }
-        break
-      case 'detection':
-        // 处理检测结果
-        if (this.onDetectionCallback) {
-          this.onDetectionCallback(data.data)
-        }
-        break
-      case 'error':
-        console.error('服务器错误:', data.message)
-        if (this.onErrorCallback) {
-          this.onErrorCallback(new Error(data.message))
-        }
-        break
-      default:
-        console.warn('未知消息类型:', data.type)
+    if (data.error) {
+      console.error('服务器错误:', data.error)
+      if (this.onErrorCallback) {
+        this.onErrorCallback(new Error(data.error))
+      }
+      return
     }
-  }
 
-  /**
-   * 尝试重连
-   * @param {string} url WebSocket 地址
-   */
-  attemptReconnect(url) {
-    if (this.reconnectAttempts < this.maxReconnectAttempts) {
-      this.reconnectAttempts++
-      console.log(`尝试重连 (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`)
-      setTimeout(() => {
-        this.connect(url)
-      }, this.reconnectDelay)
-    } else {
-      console.error('达到最大重连次数，停止重连')
+    // 检测结果
+    if (this.onDetectionCallback) {
+      this.onDetectionCallback(data)
     }
   }
 
   /**
    * 设置回调函数
    */
-  onFrame(callback) {
-    this.onFrameCallback = callback
-  }
-
   onDetection(callback) {
     this.onDetectionCallback = callback
   }

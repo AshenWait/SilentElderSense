@@ -2,15 +2,16 @@
 告警 API 端点
 
 接口:
-    GET    /api/alerts/config/<user_id>  - 获取告警配置
-    PUT    /api/alerts/config/<user_id>  - 更新告警配置
-    GET    /api/alerts/history           - 查询告警历史
-    POST   /api/alerts/trigger           - 手动触发告警
-    POST   /api/alerts/<id>/send         - 重发告警
+    GET    /api/alerts/config      - 获取告警配置
+    PUT    /api/alerts/config      - 更新告警配置
+    GET    /api/alerts/history     - 查询告警历史
+    POST   /api/alerts/trigger     - 手动触发告警
+    POST   /api/alerts/<id>/send   - 重发告警
 """
 from datetime import datetime, timedelta
 from quart import Blueprint, request, jsonify
 from auth.models import get_db
+from auth.utils import token_required
 from .models import AlertConfig, AlertHistory
 from .service import AlertService
 
@@ -28,9 +29,11 @@ def get_alert_service() -> AlertService:
     return _alert_service
 
 
-@alerts_bp.route('/api/alerts/config/<int:user_id>', methods=['GET'])
-async def get_config(user_id: int):
-    """获取用户告警配置"""
+@alerts_bp.route('/api/alerts/config', methods=['GET'])
+@token_required
+async def get_config():
+    """获取当前用户告警配置"""
+    user_id = request.current_user['user_id']
     service = get_alert_service()
     config = service.get_config(user_id)
 
@@ -49,8 +52,9 @@ async def get_config(user_id: int):
     return jsonify(config.to_dict())
 
 
-@alerts_bp.route('/api/alerts/config/<int:user_id>', methods=['PUT'])
-async def update_config(user_id: int):
+@alerts_bp.route('/api/alerts/config', methods=['PUT'])
+@token_required
+async def update_config():
     """
     更新告警配置
 
@@ -67,6 +71,7 @@ async def update_config(user_id: int):
         "bypass_quiet_hours": true
     }
     """
+    user_id = request.current_user['user_id']
     data = await request.get_json()
 
     # 处理数组字段
@@ -91,24 +96,21 @@ async def update_config(user_id: int):
 
 
 @alerts_bp.route('/api/alerts/history', methods=['GET'])
+@token_required
 async def list_history():
     """
     查询告警历史
 
     查询参数:
-        user_id: 用户ID（可选）
         status: 状态（可选）
         risk_level: 风险等级（可选）
         page: 页码
         per_page: 每页数量
     """
+    user_id = request.current_user['user_id']
     db = next(get_db())
 
-    query = db.query(AlertHistory)
-
-    user_id = request.args.get('user_id')
-    if user_id:
-        query = query.filter(AlertHistory.user_id == int(user_id))
+    query = db.query(AlertHistory).filter(AlertHistory.user_id == user_id)
 
     status = request.args.get('status')
     if status:
@@ -136,6 +138,7 @@ async def list_history():
 
 
 @alerts_bp.route('/api/alerts/trigger', methods=['POST'])
+@token_required
 async def trigger_alert():
     """
     手动触发告警
@@ -167,10 +170,12 @@ async def trigger_alert():
 
 
 @alerts_bp.route('/api/alerts/<int:alert_id>/send', methods=['POST'])
+@token_required
 async def resend_alert(alert_id: int):
     """重发告警"""
+    user_id = request.current_user['user_id']
     db = next(get_db())
-    alert = db.query(AlertHistory).filter_by(id=alert_id).first()
+    alert = db.query(AlertHistory).filter_by(id=alert_id, user_id=user_id).first()
 
     if not alert:
         return jsonify({'error': '告警记录不存在'}), 404
@@ -186,17 +191,10 @@ async def resend_alert(alert_id: int):
 
 
 @alerts_bp.route('/api/alerts/<int:alert_id>/acknowledge', methods=['POST'])
+@token_required
 async def acknowledge_alert(alert_id: int):
-    """
-    确认告警
-
-    请求体:
-    {
-        "user_id": 1
-    }
-    """
-    data = await request.get_json()
-    user_id = data.get('user_id')
+    """确认告警"""
+    user_id = request.current_user['user_id']
 
     service = get_alert_service()
     success = service.acknowledge_alert(alert_id, user_id)
@@ -208,24 +206,24 @@ async def acknowledge_alert(alert_id: int):
 
 
 @alerts_bp.route('/api/alerts/stats', methods=['GET'])
+@token_required
 async def alert_stats():
     """
     告警统计
 
     查询参数:
-        user_id: 用户ID（可选）
         days: 统计天数（默认7）
     """
-    db = next(get_db())
-
-    user_id = request.args.get('user_id')
+    user_id = request.current_user['user_id']
     days = int(request.args.get('days', 7))
 
     start_date = datetime.utcnow() - timedelta(days=days)
 
-    query = db.query(AlertHistory).filter(AlertHistory.created_at >= start_date)
-    if user_id:
-        query = query.filter(AlertHistory.user_id == int(user_id))
+    db = next(get_db())
+    query = db.query(AlertHistory).filter(
+        AlertHistory.created_at >= start_date,
+        AlertHistory.user_id == user_id
+    )
 
     alerts = query.all()
 

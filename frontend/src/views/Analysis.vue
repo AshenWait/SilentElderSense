@@ -1,9 +1,8 @@
-<template>
+﻿<template>
   <div class="analysis">
-    <!-- 时间选择器 -->
     <el-card class="filter-card">
       <div class="filter-content">
-        <el-radio-group v-model="timeRange" size="large">
+        <el-radio-group v-model="timeRange" size="large" @change="handleTimeRangeChange">
           <el-radio-button label="today">今日</el-radio-button>
           <el-radio-button label="week">本周</el-radio-button>
           <el-radio-button label="month">本月</el-radio-button>
@@ -18,11 +17,11 @@
           start-placeholder="开始日期"
           end-placeholder="结束日期"
           style="margin-left: 20px;"
+          @change="handleDateChange"
         />
       </div>
     </el-card>
 
-    <!-- 统计图表 -->
     <el-row :gutter="20" class="charts-row">
       <el-col :span="12">
         <el-card class="chart-card">
@@ -39,50 +38,38 @@
         <el-card class="chart-card">
           <template #header>
             <div class="card-header">
-              <span>时段分布分析</span>
+              <span>风险等级分布</span>
             </div>
           </template>
-          <div ref="timeDistributionChartRef" class="chart-container"></div>
+          <div ref="riskChartRef" class="chart-container"></div>
         </el-card>
       </el-col>
     </el-row>
 
     <el-row :gutter="20" class="charts-row">
-      <el-col :span="8">
+      <el-col :span="12">
         <el-card class="chart-card">
           <template #header>
             <div class="card-header">
-              <span>位置分布统计</span>
+              <span>事件类型分布</span>
             </div>
           </template>
-          <div ref="locationChartRef" class="chart-container"></div>
+          <div ref="typeChartRef" class="chart-container"></div>
         </el-card>
       </el-col>
 
-      <el-col :span="8">
+      <el-col :span="12">
         <el-card class="chart-card">
           <template #header>
             <div class="card-header">
-              <span>置信度分布</span>
+              <span>处理状态分布</span>
             </div>
           </template>
-          <div ref="confidenceChartRef" class="chart-container"></div>
-        </el-card>
-      </el-col>
-
-      <el-col :span="8">
-        <el-card class="chart-card">
-          <template #header>
-            <div class="card-header">
-              <span>处理效率分析</span>
-            </div>
-          </template>
-          <div ref="efficiencyChartRef" class="chart-container"></div>
+          <div ref="statusChartRef" class="chart-container"></div>
         </el-card>
       </el-col>
     </el-row>
 
-    <!-- 详细数据表格 -->
     <el-card class="data-card">
       <template #header>
         <div class="card-header">
@@ -91,25 +78,45 @@
         </div>
       </template>
 
-      <el-table :data="analysisData" stripe style="width: 100%">
-        <el-table-column prop="date" label="日期" width="120" />
-        <el-table-column prop="total" label="总事件数" width="100" />
-        <el-table-column prop="fall" label="跌倒检测" width="100" />
-        <el-table-column prop="stillness" label="长时间静止" width="120" />
-        <el-table-column prop="nightActivity" label="夜间异常" width="120" />
-        <el-table-column prop="avgConfidence" label="平均置信度" width="120">
+      <el-table :data="eventsData" stripe style="width: 100%" v-loading="loading">
+        <el-table-column prop="id" label="ID" width="80" />
+        <el-table-column label="事件类型" width="120">
           <template #default="{ row }">
-            {{ (row.avgConfidence * 100).toFixed(1) }}%
+            {{ getTypeLabel(row.event_type) }}
           </template>
         </el-table-column>
-        <el-table-column prop="handledCount" label="已处理" width="100" />
-        <el-table-column prop="avgResponseTime" label="平均响应时间(分钟)" width="150" />
-        <el-table-column prop="falseAlarmRate" label="误报率" width="100">
+        <el-table-column label="风险等级" width="100">
           <template #default="{ row }">
-            {{ (row.falseAlarmRate * 100).toFixed(1) }}%
+            <el-tag :type="getRiskTagType(row.risk_level)" size="small">
+              {{ getRiskLabel(row.risk_level) }}
+            </el-tag>
           </template>
         </el-table-column>
+        <el-table-column prop="start_time" label="发生时间" width="180" />
+        <el-table-column prop="duration" label="持续时间" width="100">
+          <template #default="{ row }">
+            {{ formatDuration(row.duration) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="100">
+          <template #default="{ row }">
+            <el-tag :type="getStatusTagType(row.status)" size="small">
+              {{ getStatusLabel(row.status) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="notes" label="备注" min-width="150" show-overflow-tooltip />
       </el-table>
+
+      <div class="pagination-container">
+        <el-pagination
+          v-model:current-page="currentPage"
+          :page-size="pageSize"
+          :total="total"
+          layout="total, prev, pager, next"
+          @current-change="handlePageChange"
+        />
+      </div>
     </el-card>
   </div>
 </template>
@@ -118,270 +125,211 @@
 import { ref, onMounted, nextTick, watch } from 'vue'
 import * as echarts from 'echarts'
 import { Download } from '@element-plus/icons-vue'
+import { getEvents, getEventStats } from '@/api/events'
 
 const timeRange = ref('week')
 const customDateRange = ref(null)
+const loading = ref(false)
 
 const trendChartRef = ref(null)
-const timeDistributionChartRef = ref(null)
-const locationChartRef = ref(null)
-const confidenceChartRef = ref(null)
-const efficiencyChartRef = ref(null)
+const riskChartRef = ref(null)
+const typeChartRef = ref(null)
+const statusChartRef = ref(null)
 
 let trendChart = null
-let timeDistributionChart = null
-let locationChart = null
-let confidenceChart = null
-let efficiencyChart = null
+let riskChart = null
+let typeChart = null
+let statusChart = null
 
-// 模拟分析数据
-const analysisData = ref([
-  { date: '2026-03-16', total: 22, fall: 5, stillness: 10, nightActivity: 7, avgConfidence: 0.91, handledCount: 21, avgResponseTime: 8.5, falseAlarmRate: 0.05 },
-  { date: '2026-03-17', total: 19, fall: 4, stillness: 8, nightActivity: 7, avgConfidence: 0.89, handledCount: 18, avgResponseTime: 7.2, falseAlarmRate: 0.06 },
-  { date: '2026-03-18', total: 25, fall: 6, stillness: 11, nightActivity: 8, avgConfidence: 0.92, handledCount: 24, avgResponseTime: 6.8, falseAlarmRate: 0.04 },
-  { date: '2026-03-19', total: 18, fall: 3, stillness: 9, nightActivity: 6, avgConfidence: 0.90, handledCount: 17, avgResponseTime: 9.1, falseAlarmRate: 0.07 },
-  { date: '2026-03-20', total: 21, fall: 5, stillness: 10, nightActivity: 6, avgConfidence: 0.93, handledCount: 20, avgResponseTime: 7.5, falseAlarmRate: 0.05 },
-  { date: '2026-03-21', total: 20, fall: 4, stillness: 9, nightActivity: 7, avgConfidence: 0.91, handledCount: 19, avgResponseTime: 8.2, falseAlarmRate: 0.06 },
-  { date: '2026-03-22', total: 16, fall: 3, stillness: 7, nightActivity: 6, avgConfidence: 0.92, handledCount: 15, avgResponseTime: 7.8, falseAlarmRate: 0.05 }
-])
+const eventsData = ref([])
+const stats = ref({
+  total: 0,
+  by_type: {},
+  by_risk: {},
+  by_status: {}
+})
 
-const initTrendChart = () => {
-  trendChart = echarts.init(trendChartRef.value)
-  const dates = analysisData.value.map(item => item.date.slice(5))
+const currentPage = ref(1)
+const pageSize = ref(20)
+const total = ref(0)
 
+const getTypeLabel = (type) => {
+  const map = { FALL: '跌倒检测', STILLNESS: '长时间静止', NIGHT_ACTIVITY: '夜间异常活动' }
+  return map[type] || type
+}
+
+const getRiskLabel = (level) => {
+  const map = { HIGH: '高风险', MEDIUM: '中风险', LOW: '低风险' }
+  return map[level] || level
+}
+
+const getRiskTagType = (level) => {
+  const map = { HIGH: 'danger', MEDIUM: 'warning', LOW: 'info' }
+  return map[level] || ''
+}
+
+const getStatusLabel = (status) => {
+  const map = { pending: '待处理', confirmed: '已确认', false_alarm: '误报' }
+  return map[status] || status
+}
+
+const getStatusTagType = (status) => {
+  const map = { pending: 'warning', confirmed: 'success', false_alarm: 'info' }
+  return map[status] || ''
+}
+
+const formatDuration = (seconds) => {
+  if (!seconds) return '-'
+  if (seconds < 60) return `${seconds.toFixed(1)}秒`
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}分${(seconds % 60).toFixed(0)}秒`
+  return `${Math.floor(seconds / 3600)}时${Math.floor((seconds % 3600) / 60)}分`
+}
+
+const getDaysByRange = () => {
+  switch (timeRange.value) {
+    case 'today': return 1
+    case 'week': return 7
+    case 'month': return 30
+    default: return 7
+  }
+}
+
+const loadData = async () => {
+  loading.value = true
+  try {
+    const days = getDaysByRange()
+    const [eventsRes, statsRes] = await Promise.all([
+      getEvents({ page: currentPage.value, per_page: pageSize.value }),
+      getEventStats({ days })
+    ])
+
+    eventsData.value = eventsRes.events || []
+    total.value = eventsRes.total || 0
+    stats.value = statsRes
+
+    updateCharts()
+  } catch (error) {
+    console.error('加载数据失败:', error)
+  } finally {
+    loading.value = false
+  }
+}
+
+const updateCharts = () => {
+  updateTrendChart()
+  updateRiskChart()
+  updateTypeChart()
+  updateStatusChart()
+}
+
+const updateTrendChart = () => {
+  if (!trendChart) return
+  const s = stats.value
   trendChart.setOption({
-    tooltip: {
-      trigger: 'axis'
-    },
-    legend: {
-      data: ['跌倒检测', '长时间静止', '夜间异常活动']
-    },
-    grid: {
-      left: '3%',
-      right: '4%',
-      bottom: '3%',
-      containLabel: true
-    },
-    xAxis: {
-      type: 'category',
-      boundaryGap: false,
-      data: dates
-    },
-    yAxis: {
-      type: 'value',
-      name: '事件数量'
-    },
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['跌倒检测', '长时间静止', '夜间异常活动'] },
+    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+    xAxis: { type: 'category', data: ['统计周期'] },
+    yAxis: { type: 'value', name: '事件数量' },
     series: [
-      {
-        name: '跌倒检测',
-        type: 'line',
-        smooth: true,
-        data: analysisData.value.map(item => item.fall),
-        itemStyle: { color: '#f56c6c' }
-      },
-      {
-        name: '长时间静止',
-        type: 'line',
-        smooth: true,
-        data: analysisData.value.map(item => item.stillness),
-        itemStyle: { color: '#e6a23c' }
-      },
-      {
-        name: '夜间异常活动',
-        type: 'line',
-        smooth: true,
-        data: analysisData.value.map(item => item.nightActivity),
-        itemStyle: { color: '#409eff' }
-      }
+      { name: '跌倒检测', type: 'bar', data: [s.by_type?.FALL || 0], itemStyle: { color: '#f56c6c' } },
+      { name: '长时间静止', type: 'bar', data: [s.by_type?.STILLNESS || 0], itemStyle: { color: '#e6a23c' } },
+      { name: '夜间异常活动', type: 'bar', data: [s.by_type?.NIGHT_ACTIVITY || 0], itemStyle: { color: '#409eff' } }
     ]
   })
 }
 
-const initTimeDistributionChart = () => {
-  timeDistributionChart = echarts.init(timeDistributionChartRef.value)
-
-  timeDistributionChart.setOption({
-    tooltip: {
-      trigger: 'axis',
-      axisPointer: {
-        type: 'shadow'
-      }
-    },
-    grid: {
-      left: '3%',
-      right: '4%',
-      bottom: '3%',
-      containLabel: true
-    },
-    xAxis: {
-      type: 'category',
-      data: ['0-6时', '6-12时', '12-18时', '18-24时']
-    },
-    yAxis: {
-      type: 'value',
-      name: '事件数量'
-    },
-    series: [
-      {
-        name: '事件数量',
-        type: 'bar',
-        data: [
-          { value: 28, itemStyle: { color: '#5470c6' } },
-          { value: 45, itemStyle: { color: '#91cc75' } },
-          { value: 52, itemStyle: { color: '#fac858' } },
-          { value: 31, itemStyle: { color: '#ee6666' } }
-        ],
-        barWidth: '60%'
-      }
-    ]
+const updateRiskChart = () => {
+  if (!riskChart) return
+  const s = stats.value
+  riskChart.setOption({
+    tooltip: { trigger: 'item' },
+    series: [{
+      name: '风险等级',
+      type: 'pie',
+      radius: ['40%', '70%'],
+      data: [
+        { value: s.by_risk?.HIGH || 0, name: '高风险', itemStyle: { color: '#f56c6c' } },
+        { value: s.by_risk?.MEDIUM || 0, name: '中风险', itemStyle: { color: '#e6a23c' } },
+        { value: s.by_risk?.LOW || 0, name: '低风险', itemStyle: { color: '#909399' } }
+      ],
+      label: { show: true, formatter: '{b}: {c} ({d}%)' }
+    }]
   })
 }
 
-const initLocationChart = () => {
-  locationChart = echarts.init(locationChartRef.value)
-
-  locationChart.setOption({
-    tooltip: {
-      trigger: 'item'
-    },
-    series: [
-      {
-        name: '位置分布',
-        type: 'pie',
-        radius: ['40%', '70%'],
-        avoidLabelOverlap: false,
-        itemStyle: {
-          borderRadius: 10,
-          borderColor: '#fff',
-          borderWidth: 2
-        },
-        label: {
-          show: true,
-          formatter: '{b}: {c} ({d}%)'
-        },
-        data: [
-          { value: 45, name: '客厅', itemStyle: { color: '#5470c6' } },
-          { value: 32, name: '卧室', itemStyle: { color: '#91cc75' } },
-          { value: 28, name: '卫生间', itemStyle: { color: '#fac858' } },
-          { value: 23, name: '厨房', itemStyle: { color: '#ee6666' } },
-          { value: 18, name: '走廊', itemStyle: { color: '#73c0de' } },
-          { value: 10, name: '书房', itemStyle: { color: '#3ba272' } }
-        ]
-      }
-    ]
+const updateTypeChart = () => {
+  if (!typeChart) return
+  const s = stats.value
+  typeChart.setOption({
+    tooltip: { trigger: 'item' },
+    series: [{
+      name: '事件类型',
+      type: 'pie',
+      radius: '60%',
+      data: [
+        { value: s.by_type?.FALL || 0, name: '跌倒检测', itemStyle: { color: '#f56c6c' } },
+        { value: s.by_type?.STILLNESS || 0, name: '长时间静止', itemStyle: { color: '#e6a23c' } },
+        { value: s.by_type?.NIGHT_ACTIVITY || 0, name: '夜间异常活动', itemStyle: { color: '#409eff' } }
+      ],
+      label: { show: true, formatter: '{b}\n{c} ({d}%)' }
+    }]
   })
 }
 
-const initConfidenceChart = () => {
-  confidenceChart = echarts.init(confidenceChartRef.value)
-
-  confidenceChart.setOption({
-    tooltip: {
-      trigger: 'axis',
-      axisPointer: {
-        type: 'shadow'
-      }
-    },
-    grid: {
-      left: '3%',
-      right: '4%',
-      bottom: '3%',
-      containLabel: true
-    },
-    xAxis: {
-      type: 'category',
-      data: ['0-0.6', '0.6-0.7', '0.7-0.8', '0.8-0.9', '0.9-1.0']
-    },
-    yAxis: {
-      type: 'value',
-      name: '事件数量'
-    },
-    series: [
-      {
-        name: '事件数量',
-        type: 'bar',
-        data: [3, 8, 25, 58, 62],
-        itemStyle: {
-          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: '#83bff6' },
-            { offset: 0.5, color: '#188df0' },
-            { offset: 1, color: '#188df0' }
-          ])
-        },
-        barWidth: '50%'
-      }
-    ]
-  })
-}
-
-const initEfficiencyChart = () => {
-  efficiencyChart = echarts.init(efficiencyChartRef.value)
-
-  efficiencyChart.setOption({
-    tooltip: {
-      trigger: 'axis'
-    },
-    legend: {
-      data: ['平均响应时间', '处理完成率']
-    },
-    grid: {
-      left: '3%',
-      right: '4%',
-      bottom: '3%',
-      containLabel: true
-    },
-    xAxis: {
-      type: 'category',
-      data: analysisData.value.map(item => item.date.slice(5))
-    },
-    yAxis: [
-      {
-        type: 'value',
-        name: '响应时间(分钟)',
-        position: 'left'
-      },
-      {
-        type: 'value',
-        name: '完成率(%)',
-        position: 'right',
-        max: 100
-      }
-    ],
-    series: [
-      {
-        name: '平均响应时间',
-        type: 'bar',
-        data: analysisData.value.map(item => item.avgResponseTime),
-        itemStyle: { color: '#f56c6c' }
-      },
-      {
-        name: '处理完成率',
-        type: 'line',
-        yAxisIndex: 1,
-        data: analysisData.value.map(item => (item.handledCount / item.total * 100).toFixed(1)),
-        itemStyle: { color: '#67c23a' }
-      }
-    ]
+const updateStatusChart = () => {
+  if (!statusChart) return
+  const s = stats.value
+  statusChart.setOption({
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+    xAxis: { type: 'category', data: ['待处理', '已确认', '误报'] },
+    yAxis: { type: 'value' },
+    series: [{
+      name: '事件数量',
+      type: 'bar',
+      data: [
+        { value: s.by_status?.pending || 0, itemStyle: { color: '#e6a23c' } },
+        { value: s.by_status?.confirmed || 0, itemStyle: { color: '#67c23a' } },
+        { value: s.by_status?.false_alarm || 0, itemStyle: { color: '#909399' } }
+      ],
+      barWidth: '50%'
+    }]
   })
 }
 
 const initCharts = () => {
-  initTrendChart()
-  initTimeDistributionChart()
-  initLocationChart()
-  initConfidenceChart()
-  initEfficiencyChart()
+  trendChart = echarts.init(trendChartRef.value)
+  riskChart = echarts.init(riskChartRef.value)
+  typeChart = echarts.init(typeChartRef.value)
+  statusChart = echarts.init(statusChartRef.value)
+  updateCharts()
 }
 
 const handleResize = () => {
   trendChart?.resize()
-  timeDistributionChart?.resize()
-  locationChart?.resize()
-  confidenceChart?.resize()
-  efficiencyChart?.resize()
+  riskChart?.resize()
+  typeChart?.resize()
+  statusChart?.resize()
 }
 
-onMounted(() => {
+const handleTimeRangeChange = () => {
+  currentPage.value = 1
+  loadData()
+}
+
+const handleDateChange = () => {
+  currentPage.value = 1
+  loadData()
+}
+
+const handlePageChange = (page) => {
+  currentPage.value = page
+  loadData()
+}
+
+onMounted(async () => {
+  await loadData()
   nextTick(() => {
     initCharts()
     window.addEventListener('resize', handleResize)
@@ -389,8 +337,7 @@ onMounted(() => {
 })
 
 watch(timeRange, () => {
-  // 这里可以根据时间范围重新加载数据
-  console.log('Time range changed:', timeRange.value)
+  loadData()
 })
 </script>
 
@@ -438,5 +385,11 @@ watch(timeRange, () => {
   border: none;
   border-radius: 12px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+
+.pagination-container {
+  margin-top: 20px;
+  display: flex;
+  justify-content: flex-end;
 }
 </style>

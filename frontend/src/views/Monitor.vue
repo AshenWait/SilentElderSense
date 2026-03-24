@@ -1,74 +1,99 @@
 <template>
   <div class="monitor">
-    <!-- 摄像头选择器 -->
-    <el-card class="camera-selector">
-      <div class="selector-content">
-        <span class="selector-label">选择摄像头：</span>
-        <el-select v-model="selectedCamera" placeholder="请选择摄像头" style="width: 200px; margin-right: 20px;">
-          <el-option
-            v-for="camera in cameras"
-            :key="camera.id"
-            :label="camera.name"
-            :value="camera.id"
-          />
-        </el-select>
-
-        <el-button type="primary" :icon="VideoPlay" @click="startMonitoring">开始监控</el-button>
-        <el-button type="danger" :icon="VideoPause" @click="stopMonitoring">停止监控</el-button>
-
-        <el-checkbox v-model="privacyMode" style="margin-left: 20px;">
-          隐私保护模式
-        </el-checkbox>
+    <!-- 控制面板 -->
+    <el-card class="control-panel">
+      <div class="panel-content">
+        <div class="session-info">
+          <span class="label">会话状态：</span>
+          <el-tag :type="isConnected ? 'success' : 'info'">
+            {{ isConnected ? '已连接' : '未连接' }}
+          </el-tag>
+          <span v-if="videoId" class="video-id">会话ID: {{ videoId }}</span>
+        </div>
+        <div class="actions">
+          <el-upload
+            ref="uploadRef"
+            :auto-upload="false"
+            :show-file-list="false"
+            accept="video/*"
+            :on-change="handleVideoSelect"
+          >
+            <el-button type="primary" :icon="Upload">
+              选择视频
+            </el-button>
+          </el-upload>
+          <el-button
+            v-if="selectedVideo"
+            type="success"
+            :icon="VideoPlay"
+            @click="startSession"
+            :disabled="isConnected"
+          >
+            开始检测
+          </el-button>
+          <el-button
+            type="danger"
+            :icon="VideoPause"
+            @click="stopSession"
+            :disabled="!isConnected"
+          >
+            停止检测
+          </el-button>
+        </div>
+      </div>
+      <div v-if="selectedVideo" class="video-info">
+        <el-tag>视频: {{ selectedVideo.name }}</el-tag>
+        <span class="video-size">大小: {{ formatFileSize(selectedVideo.size) }}</span>
       </div>
     </el-card>
 
-    <!-- 监控画面 -->
-    <el-row :gutter="20" class="monitor-row">
-      <!-- 主监控画面 -->
+    <!-- 进度条 -->
+    <el-card v-if="isConnected && videoProgress > 0" class="progress-card">
+      <el-progress
+        :percentage="videoProgress"
+        :format="progressFormat"
+        :stroke-width="20"
+        :color="progressColor"
+      />
+      <div class="progress-info">
+        <span>已处理: {{ processedFrames }} 帧</span>
+        <span>检测事件: {{ totalEvents }} 个</span>
+      </div>
+    </el-card>
+
+    <!-- 监控区域 -->
+    <el-row :gutter="20">
       <el-col :span="16">
-        <el-card class="main-monitor">
+        <el-card class="video-card">
           <template #header>
-            <div class="monitor-header">
-              <span>{{ currentCameraName }}</span>
-              <div class="monitor-status">
-                <span class="status-dot" :class="{ online: isMonitoring, offline: !isMonitoring }"></span>
-                <span class="status-text">{{ isMonitoring ? '监控中' : '已停止' }}</span>
-              </div>
+            <div class="card-header">
+              <span>实时监控</span>
+              <el-tag v-if="isConnected" type="success">检测中</el-tag>
             </div>
           </template>
 
-          <div class="monitor-content">
-            <div v-if="!isMonitoring" class="monitor-placeholder">
+          <div class="video-container">
+            <div v-if="!isConnected && !previewUrl" class="placeholder">
               <el-icon class="placeholder-icon"><VideoCamera /></el-icon>
-              <p>点击"开始监控"按钮启动实时监控</p>
+              <p>选择视频文件开始检测</p>
             </div>
-
-            <div v-else class="monitor-view">
-              <div class="video-container">
-                <div class="privacy-mask" v-if="privacyMode">
-                  <div class="privacy-info">
-                    <el-icon class="privacy-icon"><Lock /></el-icon>
-                    <p>隐私保护模式</p>
-                    <p>原始画面已匿名化处理</p>
-                  </div>
+            <div v-else class="detection-view">
+              <video
+                ref="videoRef"
+                :src="previewUrl"
+                class="video-player"
+                muted
+                @loadedmetadata="onVideoLoaded"
+              ></video>
+              <canvas ref="canvasRef" class="overlay-canvas"></canvas>
+              <div class="overlay-info">
+                <div class="info-item">
+                  <span class="label">检测人数：</span>
+                  <span class="value">{{ detectionResult.persons?.length || 0 }}</span>
                 </div>
-              </div>
-
-              <div class="video-overlay">
-                <div class="overlay-left">
-                  <div class="overlay-item">
-                    <span class="overlay-label">位置：</span>
-                    <span class="overlay-value">{{ currentCameraName }}</span>
-                  </div>
-                  <div class="overlay-item">
-                    <span class="overlay-label">时间：</span>
-                    <span class="overlay-value">{{ currentTime }}</span>
-                  </div>
-                </div>
-                <div class="overlay-right">
-                  <el-tag :type="currentRiskLevel" size="large">
-                    {{ currentRiskLabel }}
-                  </el-tag>
+                <div class="info-item">
+                  <span class="label">事件数：</span>
+                  <span class="value">{{ detectionResult.events?.length || 0 }}</span>
                 </div>
               </div>
             </div>
@@ -76,228 +101,320 @@
         </el-card>
       </el-col>
 
-      <!-- 实时信息面板 -->
       <el-col :span="8">
-        <el-card class="info-panel">
+        <el-card class="info-card">
           <template #header>
-            <span>实时信息</span>
+            <span>检测结果</span>
           </template>
 
-          <div class="info-content">
-            <div class="info-section">
-              <h4 class="info-title">检测状态</h4>
-              <div class="info-grid">
-                <div class="info-item">
-                  <span class="info-label">活动状态：</span>
-                  <span class="info-value">{{ activityStatus }}</span>
-                </div>
-                <div class="info-item">
-                  <span class="info-label">置信度：</span>
-                  <span class="info-value">{{ (confidence * 100).toFixed(1) }}%</span>
-                </div>
-                <div class="info-item">
-                  <span class="info-label">静止时长：</span>
-                  <span class="info-value">{{ formatDuration(stillnessDuration) }}</span>
-                </div>
-                <div class="info-item">
-                  <span class="info-label">活动次数：</span>
-                  <span class="info-value">{{ activityCount }}</span>
-                </div>
-              </div>
+          <div class="detection-info">
+            <div v-if="!isConnected" class="no-data">
+              <p>等待连接...</p>
             </div>
+            <template v-else>
+              <div class="section">
+                <h4>检测到的人员</h4>
+                <div v-if="detectionResult.persons?.length" class="person-list">
+                  <div v-for="person in detectionResult.persons" :key="person.person_id" class="person-item">
+                    <el-tag :type="getPersonTagType(person.class_name)" size="small">
+                      {{ getPersonLabel(person.class_name) }}
+                    </el-tag>
+                    <span class="confidence">置信度: {{ (person.confidence * 100).toFixed(1) }}%</span>
+                  </div>
+                </div>
+                <el-empty v-else description="暂无检测结果" :image-size="60" />
+              </div>
 
-            <div class="info-section">
-              <h4 class="info-title">风险指标</h4>
-              <div class="risk-indicators">
-                <div class="risk-indicator">
-                  <div class="indicator-label">跌倒风险</div>
-                  <el-progress
-                    :percentage="fallRisk"
-                    :color="getRiskColor(fallRisk)"
-                    :stroke-width="8"
-                  />
+              <div class="section">
+                <h4>检测事件</h4>
+                <div v-if="detectionResult.events?.length" class="event-list">
+                  <div v-for="(event, index) in detectionResult.events" :key="index" class="event-item">
+                    <el-tag :type="getEventTagType(event.risk_level)" size="small">
+                      {{ getEventLabel(event.event_type) }}
+                    </el-tag>
+                    <span class="duration">持续: {{ event.duration?.toFixed(1) }}秒</span>
+                  </div>
                 </div>
-                <div class="risk-indicator">
-                  <div class="indicator-label">静止风险</div>
-                  <el-progress
-                    :percentage="stillnessRisk"
-                    :color="getRiskColor(stillnessRisk)"
-                    :stroke-width="8"
-                  />
-                </div>
-                <div class="risk-indicator">
-                  <div class="indicator-label">夜间异常</div>
-                  <el-progress
-                    :percentage="nightRisk"
-                    :color="getRiskColor(nightRisk)"
-                    :stroke-width="8"
-                  />
-                </div>
+                <el-empty v-else description="暂无事件" :image-size="60" />
               </div>
-            </div>
 
-            <div class="info-section">
-              <h4 class="info-title">最近检测</h4>
-              <div class="recent-detections">
-                <div
-                  v-for="detection in recentDetections"
-                  :key="detection.id"
-                  class="detection-item"
-                >
-                  <el-tag :type="getDetectionTagType(detection.type)" size="small">
-                    {{ detection.typeName }}
-                  </el-tag>
-                  <span class="detection-time">{{ detection.time }}</span>
+              <div class="section" v-if="allEvents.length > 0">
+                <h4>历史事件 ({{ allEvents.length }})</h4>
+                <div class="event-list scrollable">
+                  <div v-for="(event, index) in allEvents.slice(-10).reverse()" :key="index" class="event-item small">
+                    <el-tag :type="getEventTagType(event.risk_level)" size="small">
+                      {{ getEventLabel(event.event_type) }}
+                    </el-tag>
+                    <span class="time">{{ event.duration?.toFixed(1) }}s</span>
+                  </div>
                 </div>
               </div>
-            </div>
+            </template>
           </div>
         </el-card>
       </el-col>
     </el-row>
-
-    <!-- 监控日志 -->
-    <el-card class="log-card">
-      <template #header>
-        <div class="log-header">
-          <span>监控日志</span>
-          <el-button type="primary" :icon="Download" size="small">导出日志</el-button>
-        </div>
-      </template>
-
-      <el-table :data="monitorLogs" stripe style="width: 100%" max-height="300">
-        <el-table-column prop="time" label="时间" width="180" />
-        <el-table-column prop="camera" label="摄像头" width="120" />
-        <el-table-column prop="event" label="事件" width="150" />
-        <el-table-column prop="riskLevel" label="风险等级" width="100">
-          <template #default="{ row }">
-            <el-tag :type="getRiskTagType(row.riskLevel)" size="small">
-              {{ getRiskLabel(row.riskLevel) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="confidence" label="置信度" width="100">
-          <template #default="{ row }">
-            {{ (row.confidence * 100).toFixed(1) }}%
-          </template>
-        </el-table-column>
-        <el-table-column prop="description" label="描述" min-width="200" />
-      </el-table>
-    </el-card>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { VideoPlay, VideoPause, VideoCamera, Lock, Download } from '@element-plus/icons-vue'
-import dayjs from 'dayjs'
+import { VideoPlay, VideoPause, VideoCamera, Upload } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
+import { createSession, closeSession } from '@/api/monitor'
 
-const selectedCamera = ref(1)
-const isMonitoring = ref(false)
-const privacyMode = ref(true)
+const videoId = ref('')
+const isConnected = ref(false)
+const selectedVideo = ref(null)
+const previewUrl = ref('')
+const videoRef = ref(null)
+const canvasRef = ref(null)
+const uploadRef = ref(null)
 
-const cameras = ref([
-  { id: 1, name: '客厅摄像头', location: '客厅' },
-  { id: 2, name: '卧室摄像头', location: '卧室' },
-  { id: 3, name: '卫生间摄像头', location: '卫生间' },
-  { id: 4, name: '厨房摄像头', location: '厨房' }
-])
+const videoProgress = ref(0)
+const processedFrames = ref(0)
+const totalEvents = ref(0)
+const allEvents = ref([])
 
-const currentCameraName = computed(() => {
-  const camera = cameras.value.find(c => c.id === selectedCamera.value)
-  return camera ? camera.name : '未选择'
+const detectionResult = ref({
+  detected: false,
+  persons: [],
+  events: []
 })
 
-const activityStatus = ref('活动')
-const confidence = ref(0.92)
-const stillnessDuration = ref(0)
-const activityCount = ref(23)
+let ws = null
+let frameInterval = null
+let videoCanvas = null
+let videoCtx = null
 
-const fallRisk = ref(15)
-const stillnessRisk = ref(35)
-const nightRisk = ref(10)
-
-const currentRiskLevel = computed(() => {
-  const maxRisk = Math.max(fallRisk.value, stillnessRisk.value, nightRisk.value)
-  if (maxRisk >= 70) return 'danger'
-  if (maxRisk >= 40) return 'warning'
-  return 'success'
-})
-
-const currentRiskLabel = computed(() => {
-  const maxRisk = Math.max(fallRisk.value, stillnessRisk.value, nightRisk.value)
-  if (maxRisk >= 70) return '高风险'
-  if (maxRisk >= 40) return '中风险'
-  return '正常'
-})
-
-const currentTime = ref('')
-
-const recentDetections = ref([
-  { id: 1, type: 'fall', typeName: '跌倒检测', time: '14:32:15' },
-  { id: 2, type: 'stillness', typeName: '长时间静止', time: '12:15:30' },
-  { id: 3, type: 'normal', typeName: '正常活动', time: '10:45:22' },
-  { id: 4, type: 'normal', typeName: '正常活动', time: '09:30:18' }
-])
-
-const monitorLogs = ref([
-  { time: '2026-03-22 14:32:15', camera: '客厅', event: '跌倒检测', riskLevel: 'high', confidence: 0.92, description: '检测到跌倒行为' },
-  { time: '2026-03-22 12:15:30', camera: '卧室', event: '长时间静止', riskLevel: 'medium', confidence: 0.85, description: '静止超过30分钟' },
-  { time: '2026-03-22 10:45:22', camera: '客厅', event: '正常活动', riskLevel: 'low', confidence: 0.95, description: '正常行走' },
-  { time: '2026-03-22 09:30:18', camera: '厨房', event: '正常活动', riskLevel: 'low', confidence: 0.93, description: '正常活动' }
-])
-
-let timeInterval = null
-
-const updateTime = () => {
-  currentTime.value = dayjs().format('YYYY-MM-DD HH:mm:ss')
+const getPersonTagType = (className) => {
+  const map = { 'normal': 'success', 'fall': 'danger', 'stillness': 'warning' }
+  return map[className] || 'info'
 }
 
-const formatDuration = (seconds) => {
-  if (seconds < 60) return `${seconds}秒`
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}分${seconds % 60}秒`
-  return `${Math.floor(seconds / 3600)}时${Math.floor((seconds % 3600) / 60)}分`
+const getPersonLabel = (className) => {
+  const map = { 'normal': '正常', 'fall': '跌倒', 'stillness': '静止' }
+  return map[className] || className
 }
 
-const getRiskColor = (risk) => {
-  if (risk >= 70) return '#f56c6c'
-  if (risk >= 40) return '#e6a23c'
+const getEventTagType = (riskLevel) => {
+  const map = { 'HIGH': 'danger', 'MEDIUM': 'warning', 'LOW': 'info' }
+  return map[riskLevel] || 'info'
+}
+
+const getEventLabel = (eventType) => {
+  const map = { 'FALL': '跌倒检测', 'STILLNESS': '长时间静止', 'NIGHT_ACTIVITY': '夜间异常' }
+  return map[eventType] || eventType
+}
+
+const formatFileSize = (bytes) => {
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+}
+
+const progressFormat = (percentage) => percentage === 100 ? '完成' : `${percentage}%`
+
+const progressColor = (percentage) => {
+  if (percentage < 30) return '#909399'
+  if (percentage < 70) return '#e6a23c'
   return '#67c23a'
 }
 
-const getRiskLabel = (level) => {
-  const map = { high: '高风险', medium: '中风险', low: '低风险' }
-  return map[level] || level
+const handleVideoSelect = (file) => {
+  if (!file || !file.raw) {
+    ElMessage.error('文件选择失败')
+    return
+  }
+  selectedVideo.value = file.raw
+  previewUrl.value = URL.createObjectURL(file.raw)
+  videoProgress.value = 0
+  processedFrames.value = 0
+  totalEvents.value = 0
+  allEvents.value = []
 }
 
-const getRiskTagType = (level) => {
-  const map = { high: 'danger', medium: 'warning', low: 'info' }
-  return map[level] || ''
+const onVideoLoaded = () => {
+  // 视频加载完成
 }
 
-const getDetectionTagType = (type) => {
-  const map = { fall: 'danger', stillness: 'warning', normal: 'success' }
-  return map[type] || ''
+const startSession = async () => {
+  if (!selectedVideo.value) {
+    ElMessage.warning('请先选择视频文件')
+    return
+  }
+
+  try {
+    const response = await createSession()
+    videoId.value = response.video_id
+
+    // 连接 WebSocket
+    ws = new WebSocket(`ws://localhost:5000/ws/detect/${videoId.value}`)
+
+    ws.onopen = () => {
+      isConnected.value = true
+      ElMessage.success('会话创建成功，开始检测')
+      startVideoProcessing()
+    }
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        if (data.error) {
+          ElMessage.error(data.error)
+        } else {
+          detectionResult.value = data
+          if (data.events?.length) {
+            totalEvents.value += data.events.length
+            allEvents.value.push(...data.events)
+          }
+          renderFrame(data)
+        }
+      } catch (e) {
+        console.error('解析检测结果失败:', e)
+      }
+    }
+
+    ws.onerror = (error) => {
+      console.error('WebSocket 错误:', error)
+      ElMessage.error('连接错误')
+    }
+
+    ws.onclose = () => {
+      isConnected.value = false
+      stopVideoProcessing()
+    }
+  } catch (error) {
+    ElMessage.error('创建会话失败: ' + error.message)
+  }
 }
 
-const startMonitoring = () => {
-  isMonitoring.value = true
-  console.log('开始监控', currentCameraName.value)
+const stopSession = async () => {
+  stopVideoProcessing()
+
+  if (ws) {
+    ws.close()
+    ws = null
+  }
+
+  if (videoId.value) {
+    try {
+      await closeSession(videoId.value)
+      ElMessage.success('会话已关闭')
+    } catch (error) {
+      console.error('关闭会话失败:', error)
+    }
+  }
+
+  videoId.value = ''
+  isConnected.value = false
 }
 
-const stopMonitoring = () => {
-  isMonitoring.value = false
-  console.log('停止监控')
+const startVideoProcessing = () => {
+  if (!videoRef.value) return
+
+  const video = videoRef.value
+  video.currentTime = 0
+  video.playbackRate = 1.0
+
+  // 创建离屏 canvas 用于提取帧
+  videoCanvas = document.createElement('canvas')
+  videoCanvas.width = 640
+  videoCanvas.height = 480
+  videoCtx = videoCanvas.getContext('2d')
+
+  video.play().catch(e => console.error('视频播放失败:', e))
+
+  // 逐帧提取并发送
+  let lastTime = 0
+  const fps = 10 // 每秒发送 10 帧
+
+  const processFrame = () => {
+    if (!isConnected.value || video.ended) {
+      if (video.ended) {
+        videoProgress.value = 100
+        ElMessage.success('视频处理完成')
+      }
+      return
+    }
+
+    const currentTime = video.currentTime
+    if (currentTime - lastTime >= 1 / fps) {
+      lastTime = currentTime
+
+      // 更新进度
+      videoProgress.value = Math.round((video.currentTime / video.duration) * 100)
+      processedFrames.value++
+
+      // 提取帧数据
+      videoCtx.drawImage(video, 0, 0, videoCanvas.width, videoCanvas.height)
+      
+      // 转换为 JPEG 并发���
+      videoCanvas.toBlob((blob) => {
+        if (blob && ws && ws.readyState === WebSocket.OPEN) {
+          blob.arrayBuffer().then(buffer => {
+            ws.send(buffer)
+          })
+        }
+      }, 'image/jpeg', 0.8)
+    }
+
+    requestAnimationFrame(processFrame)
+  }
+
+  requestAnimationFrame(processFrame)
+}
+
+const stopVideoProcessing = () => {
+  if (videoRef.value) {
+    videoRef.value.pause()
+  }
+  videoCanvas = null
+  videoCtx = null
+}
+
+const renderFrame = (data) => {
+  if (!canvasRef.value || !data.persons?.length) return
+
+  const ctx = canvasRef.value.getContext('2d')
+  const width = canvasRef.value.width
+  const height = canvasRef.value.height
+
+  // 清空画布
+  ctx.clearRect(0, 0, width, height)
+
+  // 绘制检测框
+  data.persons.forEach(person => {
+    const [x1, y1, x2, y2] = person.box || [0, 0, 100, 100]
+    // 缩放到 canvas 尺寸
+    const scaleX = width / 640
+    const scaleY = height / 480
+
+    const color = person.class_name === 'fall' ? '#f56c6c' :
+                  person.class_name === 'stillness' ? '#e6a23c' : '#67c23a'
+
+    ctx.strokeStyle = color
+    ctx.lineWidth = 2
+    ctx.strokeRect(x1 * scaleX, y1 * scaleY, (x2 - x1) * scaleX, (y2 - y1) * scaleY)
+
+    ctx.fillStyle = color
+    ctx.font = '14px Arial'
+    ctx.fillText(`${getPersonLabel(person.class_name)} ${(person.confidence * 100).toFixed(0)}%`, 
+                 x1 * scaleX, y1 * scaleY - 5)
+  })
 }
 
 onMounted(() => {
-  updateTime()
-  timeInterval = setInterval(updateTime, 1000)
+  if (canvasRef.value) {
+    canvasRef.value.width = 640
+    canvasRef.value.height = 480
+  }
 })
 
 onUnmounted(() => {
-  if (timeInterval) {
-    clearInterval(timeInterval)
+  stopSession()
+  if (previewUrl.value) {
+    URL.revokeObjectURL(previewUrl.value)
   }
 })
 </script>
@@ -307,77 +424,92 @@ onUnmounted(() => {
   width: 100%;
 }
 
-.camera-selector {
+.control-panel {
   border: none;
   border-radius: 12px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
   margin-bottom: 20px;
 }
 
-.selector-content {
+.panel-content {
   display: flex;
+  justify-content: space-between;
   align-items: center;
 }
 
-.selector-label {
-  font-size: 14px;
+.session-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.session-info .label {
   font-weight: 500;
-  color: #333;
+  color: #666;
 }
 
-.monitor-row {
-  margin-bottom: 20px;
+.video-id {
+  color: #999;
+  font-size: 12px;
 }
 
-.main-monitor {
+.actions {
+  display: flex;
+  gap: 10px;
+}
+
+.video-info {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #eee;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.video-size {
+  color: #999;
+  font-size: 12px;
+}
+
+.progress-card {
   border: none;
   border-radius: 12px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
-  height: 500px;
+  margin-bottom: 20px;
 }
 
-.monitor-header {
+.progress-info {
+  margin-top: 10px;
+  display: flex;
+  justify-content: space-between;
+  color: #666;
+  font-size: 14px;
+}
+
+.video-card, .info-card {
+  border: none;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+
+.card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   font-weight: 600;
 }
 
-.monitor-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.video-container {
+  width: 100%;
+  height: 400px;
+  background: #1a1a2e;
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
 }
 
-.status-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  animation: pulse 2s infinite;
-}
-
-.status-dot.online {
-  background: #67c23a;
-}
-
-.status-dot.offline {
-  background: #f56c6c;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
-}
-
-.status-text {
-  font-size: 14px;
-}
-
-.monitor-content {
-  height: calc(100% - 60px);
-}
-
-.monitor-placeholder {
+.placeholder {
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -391,164 +523,79 @@ onUnmounted(() => {
   margin-bottom: 15px;
 }
 
-.monitor-placeholder p {
-  font-size: 16px;
-}
-
-.monitor-view {
-  width: 100%;
-  height: 100%;
-  position: relative;
-  background: #000;
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.video-container {
+.detection-view {
   width: 100%;
   height: 100%;
   position: relative;
 }
 
-.privacy-mask {
+.video-player {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.overlay-canvas {
   position: absolute;
   top: 0;
   left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
-  display: flex;
-  justify-content: center;
-  align-items: center;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
 }
 
-.privacy-info {
-  text-align: center;
-  color: #fff;
-}
-
-.privacy-icon {
-  font-size: 48px;
-  margin-bottom: 15px;
-  color: #67c23a;
-}
-
-.privacy-info p {
-  margin: 8px 0;
-  font-size: 16px;
-}
-
-.video-overlay {
+.overlay-info {
   position: absolute;
-  top: 15px;
-  left: 15px;
-  right: 15px;
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
+  top: 10px;
+  left: 10px;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 10px;
+  border-radius: 6px;
 }
 
-.overlay-left {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.overlay-item {
-  background: rgba(0, 0, 0, 0.5);
-  padding: 5px 10px;
-  border-radius: 4px;
-  font-size: 13px;
+.overlay-info .info-item {
   color: #fff;
+  font-size: 14px;
+  margin-bottom: 5px;
 }
 
-.overlay-label {
-  color: rgba(255, 255, 255, 0.7);
-  margin-right: 5px;
+.overlay-info .info-item:last-child {
+  margin-bottom: 0;
 }
 
-.overlay-value {
-  font-weight: 500;
-}
-
-.info-panel {
-  border: none;
-  border-radius: 12px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
-  height: 500px;
-}
-
-.info-content {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  max-height: 420px;
+.detection-info {
+  max-height: 400px;
   overflow-y: auto;
 }
 
-.info-section {
-  padding-bottom: 15px;
-  border-bottom: 1px solid #f0f0f0;
+.no-data {
+  text-align: center;
+  color: #999;
+  padding: 40px 0;
 }
 
-.info-section:last-child {
-  border-bottom: none;
+.section {
+  margin-bottom: 20px;
 }
 
-.info-title {
+.section h4 {
+  margin: 0 0 10px 0;
   font-size: 14px;
-  font-weight: 600;
-  color: #333;
-  margin: 0 0 12px 0;
-}
-
-.info-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
-}
-
-.info-item {
-  display: flex;
-  flex-direction: column;
-}
-
-.info-label {
-  font-size: 12px;
-  color: #666;
-  margin-bottom: 4px;
-}
-
-.info-value {
-  font-size: 16px;
-  font-weight: 600;
   color: #333;
 }
 
-.risk-indicators {
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
-}
-
-.risk-indicator {
+.person-list, .event-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.indicator-label {
-  font-size: 13px;
-  color: #666;
+.event-list.scrollable {
+  max-height: 150px;
+  overflow-y: auto;
 }
 
-.recent-detections {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.detection-item {
+.person-item, .event-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -557,21 +604,13 @@ onUnmounted(() => {
   border-radius: 6px;
 }
 
-.detection-time {
+.event-item.small {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.confidence, .duration, .time {
   font-size: 12px;
   color: #666;
-}
-
-.log-card {
-  border: none;
-  border-radius: 12px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
-}
-
-.log-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-weight: 600;
 }
 </style>

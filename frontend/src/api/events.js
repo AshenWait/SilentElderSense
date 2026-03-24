@@ -9,6 +9,15 @@ export function getEvents(params) {
   })
 }
 
+// 创建事件（记录事件）
+export function createEvent(data) {
+  return request({
+    url: '/events',
+    method: 'post',
+    data
+  })
+}
+
 // 获取事件详情
 export function getEventDetail(id) {
   return request({
@@ -18,47 +27,19 @@ export function getEventDetail(id) {
 }
 
 // 更新事件状态
-export function updateEventStatus(id, data) {
+export function updateEvent(id, data) {
   return request({
-    url: `/events/${id}/status`,
+    url: `/events/${id}`,
     method: 'put',
     data
   })
 }
 
 // 获取事件统计
-export function getEventStatistics(params) {
+export function getEventStats(params) {
   return request({
-    url: '/events/statistics',
+    url: '/events/stats',
     method: 'get',
     params
-  })
-}
-
-// 获取事件趋势
-export function getEventTrend(params) {
-  return request({
-    url: '/events/trend',
-    method: 'get',
-    params
-  })
-}
-
-// 获取位置分布
-export function getLocationDistribution(params) {
-  return request({
-    url: '/events/location-distribution',
-    method: 'get',
-    params
-  })
-}
-
-// 导出事件报告
-export function exportEventReport(params) {
-  return request({
-    url: '/events/export',
-    method: 'get',
-    params,
-    responseType: 'blob'
   })
 }

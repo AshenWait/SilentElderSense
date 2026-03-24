@@ -10,19 +10,20 @@
 from datetime import datetime, timedelta
 from quart import Blueprint, request, jsonify
 from auth.models import get_db
+from auth.utils import token_required
 from .models import Event
 
 events_bp = Blueprint('events', __name__)
 
 
 @events_bp.route('/api/events', methods=['POST'])
+@token_required
 async def create_event():
     """
     记录事件
 
     请求体:
     {
-        "user_id": 1,
         "video_id": "abc123",
         "person_id": 0,
         "event_type": "FALL",
@@ -33,6 +34,7 @@ async def create_event():
         "frame_count": 10
     }
     """
+    user_id = request.current_user['user_id']
     data = await request.get_json()
 
     db = next(get_db())
@@ -42,7 +44,7 @@ async def create_event():
     end_time = datetime.fromisoformat(data['end_time']) if isinstance(data['end_time'], str) else datetime.fromtimestamp(data['end_time'])
 
     event = Event(
-        user_id=data['user_id'],
+        user_id=user_id,
         video_id=data['video_id'],
         person_id=data['person_id'],
         event_type=data['event_type'],
@@ -65,12 +67,12 @@ async def create_event():
 
 
 @events_bp.route('/api/events', methods=['GET'])
+@token_required
 async def list_events():
     """
     查询事件列表
 
     查询参数:
-        user_id: 用户ID（可选）
         event_type: 事件类型（可选）
         risk_level: 风险等级（可选）
         status: 状态（可选）
@@ -79,14 +81,11 @@ async def list_events():
         page: 页码（默认1）
         per_page: 每页数量（默认20）
     """
+    user_id = request.current_user['user_id']
     db = next(get_db())
 
-    # 构建查询
-    query = db.query(Event)
-
-    user_id = request.args.get('user_id')
-    if user_id:
-        query = query.filter(Event.user_id == int(user_id))
+    # 构建查询，只返回当前用户的事件
+    query = db.query(Event).filter(Event.user_id == user_id)
 
     event_type = request.args.get('event_type')
     if event_type:
@@ -124,10 +123,12 @@ async def list_events():
 
 
 @events_bp.route('/api/events/<int:event_id>', methods=['GET'])
+@token_required
 async def get_event(event_id: int):
     """获取事件详情"""
+    user_id = request.current_user['user_id']
     db = next(get_db())
-    event = db.query(Event).filter_by(id=event_id).first()
+    event = db.query(Event).filter_by(id=event_id, user_id=user_id).first()
 
     if not event:
         return jsonify({'error': '事件不存在'}), 404
@@ -136,6 +137,7 @@ async def get_event(event_id: int):
 
 
 @events_bp.route('/api/events/<int:event_id>', methods=['PUT'])
+@token_required
 async def update_event(event_id: int):
     """
     更新事件状态
@@ -146,10 +148,11 @@ async def update_event(event_id: int):
         "notes": "已确认为误报"
     }
     """
+    user_id = request.current_user['user_id']
     data = await request.get_json()
 
     db = next(get_db())
-    event = db.query(Event).filter_by(id=event_id).first()
+    event = db.query(Event).filter_by(id=event_id, user_id=user_id).first()
 
     if not event:
         return jsonify({'error': '事件不存在'}), 404
@@ -171,24 +174,24 @@ async def update_event(event_id: int):
 
 
 @events_bp.route('/api/events/stats', methods=['GET'])
+@token_required
 async def event_stats():
     """
     事件统计
 
     查询参数:
-        user_id: 用户ID（可选）
         days: 统计天数（默认7）
     """
-    db = next(get_db())
-
-    user_id = request.args.get('user_id')
+    user_id = request.current_user['user_id']
     days = int(request.args.get('days', 7))
 
     start_date = datetime.utcnow() - timedelta(days=days)
 
-    query = db.query(Event).filter(Event.created_at >= start_date)
-    if user_id:
-        query = query.filter(Event.user_id == int(user_id))
+    db = next(get_db())
+    query = db.query(Event).filter(
+        Event.created_at >= start_date,
+        Event.user_id == user_id
+    )
 
     events = query.all()
 

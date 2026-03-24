@@ -1,490 +1,333 @@
 <template>
   <div class="system">
-    <!-- 标签页 -->
     <el-tabs v-model="activeTab" class="system-tabs">
-      <!-- 场景配置 -->
-      <el-tab-pane label="场景配置" name="scene">
+      <!-- 告警配置 -->
+      <el-tab-pane label="告警配置" name="alert">
         <el-card class="config-card">
           <template #header>
             <div class="card-header">
-              <span>场景配置</span>
-              <el-button type="primary" :icon="Plus" @click="addScene">添加场景</el-button>
+              <span>告警通知配置</span>
+              <el-button type="primary" @click="saveConfig" :loading="saving">保存配置</el-button>
             </div>
           </template>
 
-          <el-table :data="scenes" stripe style="width: 100%">
-            <el-table-column prop="id" label="ID" width="80" />
-            <el-table-column prop="name" label="场景名称" width="150" />
-            <el-table-column prop="location" label="位置" width="120" />
-            <el-table-column prop="camera" label="摄像头" width="120" />
-            <el-table-column prop="type" label="场景类型" width="120">
-              <template #default="{ row }">
-                <el-tag size="small">{{ row.type }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="area" label="监测区域" width="150" />
-            <el-table-column label="状态" width="100">
-              <template #default="{ row }">
-                <el-switch
-                  v-model="row.enabled"
-                  @change="handleSceneStatusChange(row)"
-                />
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="200" fixed="right">
-              <template #default="{ row }">
-                <el-button type="primary" size="small" @click="editScene(row)">编辑</el-button>
-                <el-button type="danger" size="small" @click="deleteScene(row)">删除</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-        </el-card>
-      </el-tab-pane>
-
-      <!-- 监测时段设置 -->
-      <el-tab-pane label="监测时段" name="time">
-        <el-card class="config-card">
-          <template #header>
-            <div class="card-header">
-              <span>监测时段设置</span>
-              <el-button type="primary" :icon="Plus" @click="addTimePeriod">添加时段</el-button>
-            </div>
-          </template>
-
-          <el-table :data="timePeriods" stripe style="width: 100%">
-            <el-table-column prop="id" label="ID" width="80" />
-            <el-table-column prop="name" label="时段名称" width="150" />
-            <el-table-column prop="startTime" label="开始时间" width="120" />
-            <el-table-column prop="endTime" label="结束时间" width="120" />
-            <el-table-column prop="type" label="时段类型" width="120">
-              <template #default="{ row }">
-                <el-tag :type="row.type === 'night' ? 'warning' : 'primary'" size="small">
-                  {{ row.type === 'night' ? '夜间' : '日间' }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="sensitivity" label="灵敏度" width="120">
-              <template #default="{ row }">
-                <el-tag size="small">{{ row.sensitivity }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="状态" width="100">
-              <template #default="{ row }">
-                <el-switch
-                  v-model="row.enabled"
-                  @change="handleTimePeriodStatusChange(row)"
-                />
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="200" fixed="right">
-              <template #default="{ row }">
-                <el-button type="primary" size="small" @click="editTimePeriod(row)">编辑</el-button>
-                <el-button type="danger" size="small" @click="deleteTimePeriod(row)">删除</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-        </el-card>
-      </el-tab-pane>
-
-      <!-- 告警规则 -->
-      <el-tab-pane label="告警规则" name="alert">
-        <el-card class="config-card">
-          <template #header>
-            <div class="card-header">
-              <span>告警规则配置</span>
-              <el-button type="primary" :icon="Plus" @click="addAlertRule">添加规则</el-button>
-            </div>
-          </template>
-
-          <el-table :data="alertRules" stripe style="width: 100%">
-            <el-table-column prop="id" label="ID" width="80" />
-            <el-table-column prop="name" label="规则名称" width="180" />
-            <el-table-column prop="eventType" label="事件类型" width="150">
-              <template #default="{ row }">
-                <el-tag size="small">{{ row.eventType }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="riskLevel" label="风险等级" width="120">
-              <template #default="{ row }">
-                <el-tag :type="getRiskTagType(row.riskLevel)" size="small">
-                  {{ getRiskLabel(row.riskLevel) }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="threshold" label="阈值" width="120" />
-            <el-table-column label="通知方式" width="200">
-              <template #default="{ row }">
-                <el-tag
-                  v-for="method in row.notificationMethods"
-                  :key="method"
-                  size="small"
-                  style="margin-right: 5px;"
-                >
-                  {{ method }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="状态" width="100">
-              <template #default="{ row }">
-                <el-switch
-                  v-model="row.enabled"
-                  @change="handleAlertRuleStatusChange(row)"
-                />
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="200" fixed="right">
-              <template #default="{ row }">
-                <el-button type="primary" size="small" @click="editAlertRule(row)">编辑</el-button>
-                <el-button type="danger" size="small" @click="deleteAlertRule(row)">删除</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-        </el-card>
-      </el-tab-pane>
-
-      <!-- 用户管理 -->
-      <el-tab-pane label="用户管理" name="user">
-        <el-card class="config-card">
-          <template #header>
-            <div class="card-header">
-              <span>用户管理</span>
-              <el-button type="primary" :icon="Plus" @click="addUser">添加用户</el-button>
-            </div>
-          </template>
-
-          <el-table :data="users" stripe style="width: 100%">
-            <el-table-column prop="id" label="ID" width="80" />
-            <el-table-column prop="username" label="用户名" width="120" />
-            <el-table-column prop="name" label="姓名" width="120" />
-            <el-table-column prop="role" label="角色" width="120">
-              <template #default="{ row }">
-                <el-tag :type="getRoleTagType(row.role)" size="small">
-                  {{ getRoleName(row.role) }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="phone" label="电话" width="150" />
-            <el-table-column prop="email" label="邮箱" width="200" />
-            <el-table-column label="状态" width="100">
-              <template #default="{ row }">
-                <el-tag :type="row.status === 'active' ? 'success' : 'danger'" size="small">
-                  {{ row.status === 'active' ? '启用' : '禁用' }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="200" fixed="right">
-              <template #default="{ row }">
-                <el-button type="primary" size="small" @click="editUser(row)">编辑</el-button>
-                <el-button type="danger" size="small" @click="deleteUser(row)">删除</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-        </el-card>
-      </el-tab-pane>
-
-      <!-- 系统设置 -->
-      <el-tab-pane label="系统设置" name="settings">
-        <el-card class="config-card">
-          <template #header>
-            <span>系统设置</span>
-          </template>
-
-          <el-form :model="systemSettings" label-width="150px" style="max-width: 800px;">
-            <el-form-item label="系统名称">
-              <el-input v-model="systemSettings.systemName" />
+          <el-form :model="alertConfig" label-width="150px" v-loading="loading">
+            <el-form-item label="紧急联系人">
+              <el-input v-model="alertConfig.emergency_contact" placeholder="请输入联系人姓名" />
             </el-form-item>
 
-            <el-form-item label="数据保留天数">
-              <el-input-number v-model="systemSettings.dataRetentionDays" :min="7" :max="365" />
-              <span style="margin-left: 10px;">天</span>
+            <el-form-item label="紧急联系电话">
+              <el-input v-model="alertConfig.emergency_phone" placeholder="请输入联系电话" />
             </el-form-item>
 
-            <el-form-item label="告警通知间隔">
-              <el-input-number v-model="systemSettings.alertInterval" :min="1" :max="60" />
-              <span style="margin-left: 10px;">分钟</span>
+            <el-form-item label="通知邮箱">
+              <el-input v-model="alertConfig.email" placeholder="请输入邮箱地址" />
             </el-form-item>
 
-            <el-form-item label="隐私保护模式">
-              <el-switch v-model="systemSettings.privacyMode" />
+            <el-divider content-position="left">告警方式配置</el-divider>
+
+            <el-form-item label="高风险告警">
+              <el-checkbox-group v-model="alertConfig.high_alert_methods">
+                <el-checkbox label="sms">短信</el-checkbox>
+                <el-checkbox label="email">邮件</el-checkbox>
+                <el-checkbox label="app">APP推送</el-checkbox>
+              </el-checkbox-group>
             </el-form-item>
 
-            <el-form-item label="自动删除原始视频">
-              <el-switch v-model="systemSettings.autoDeleteVideo" />
+            <el-form-item label="中风险告警">
+              <el-checkbox-group v-model="alertConfig.medium_alert_methods">
+                <el-checkbox label="sms">短信</el-checkbox>
+                <el-checkbox label="email">邮件</el-checkbox>
+                <el-checkbox label="app">APP推送</el-checkbox>
+              </el-checkbox-group>
             </el-form-item>
 
-            <el-form-item label="日志级别">
-              <el-select v-model="systemSettings.logLevel">
-                <el-option label="DEBUG" value="debug" />
-                <el-option label="INFO" value="info" />
-                <el-option label="WARNING" value="warning" />
-                <el-option label="ERROR" value="error" />
-              </el-select>
+            <el-form-item label="低风险告警">
+              <el-checkbox-group v-model="alertConfig.low_alert_methods">
+                <el-checkbox label="sms">短信</el-checkbox>
+                <el-checkbox label="email">邮件</el-checkbox>
+                <el-checkbox label="app">APP推送</el-checkbox>
+              </el-checkbox-group>
             </el-form-item>
 
-            <el-form-item>
-              <el-button type="primary" @click="saveSystemSettings">保存设置</el-button>
-              <el-button @click="resetSystemSettings">重置</el-button>
+            <el-divider content-position="left">免打扰时段</el-divider>
+
+            <el-form-item label="免打扰开始时间">
+              <el-time-picker v-model="quietHoursStart" format="HH:mm" placeholder="选择时间" />
+            </el-form-item>
+
+            <el-form-item label="免打扰结束时间">
+              <el-time-picker v-model="quietHoursEnd" format="HH:mm" placeholder="选择时间" />
+            </el-form-item>
+
+            <el-form-item label="高风险免打扰">
+              <el-switch v-model="alertConfig.bypass_quiet_hours" />
+              <span class="switch-tip">开启后，高风险事件在免打扰时段仍会通知</span>
             </el-form-item>
           </el-form>
         </el-card>
       </el-tab-pane>
-    </el-tabs>
 
-    <!-- 场景编辑对话框 -->
-    <el-dialog v-model="sceneDialogVisible" :title="sceneDialogTitle" width="600px">
-      <el-form :model="sceneForm" label-width="100px">
-        <el-form-item label="场景名称">
-          <el-input v-model="sceneForm.name" />
-        </el-form-item>
-        <el-form-item label="位置">
-          <el-input v-model="sceneForm.location" />
-        </el-form-item>
-        <el-form-item label="摄像头">
-          <el-select v-model="sceneForm.camera">
-            <el-option label="客厅摄像头" value="客厅摄像头" />
-            <el-option label="卧室摄像头" value="卧室摄像头" />
-            <el-option label="卫生间摄像头" value="卫生间摄像头" />
-            <el-option label="厨房摄像头" value="厨房摄像头" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="场景类型">
-          <el-select v-model="sceneForm.type">
-            <el-option label="起居室" value="起居室" />
-            <el-option label="卧室" value="卧室" />
-            <el-option label="卫生间" value="卫生间" />
-            <el-option label="厨房" value="厨房" />
-            <el-option label="走廊" value="走廊" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="监测区域">
-          <el-input v-model="sceneForm.area" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="sceneDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveScene">确定</el-button>
-      </template>
-    </el-dialog>
+      <!-- 告警历史 -->
+      <el-tab-pane label="告警历史" name="history">
+        <el-card class="config-card">
+          <template #header>
+            <div class="card-header">
+              <span>告警历史记录</span>
+              <el-button type="primary" @click="loadAlertHistory" :icon="Refresh">刷新</el-button>
+            </div>
+          </template>
+
+          <el-table :data="alertHistory" stripe v-loading="historyLoading">
+            <el-table-column prop="id" label="ID" width="80" />
+            <el-table-column label="告警类型" width="120">
+              <template #default="{ row }">
+                {{ getEventTypeLabel(row.event_type) }}
+              </template>
+            </el-table-column>
+            <el-table-column label="风险等级" width="100">
+              <template #default="{ row }">
+                <el-tag :type="getRiskTagType(row.risk_level)" size="small">
+                  {{ getRiskLabel(row.risk_level) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="alert_method" label="通知方式" width="100" />
+            <el-table-column label="状态" width="100">
+              <template #default="{ row }">
+                <el-tag :type="getStatusTagType(row.status)" size="small">
+                  {{ getStatusLabel(row.status) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="created_at" label="创建时间" width="180" />
+            <el-table-column label="操作" width="150" fixed="right">
+              <template #default="{ row }">
+                <el-button
+                  v-if="row.status !== 'acknowledged'"
+                  type="primary"
+                  size="small"
+                  @click="acknowledgeAlert(row.id)"
+                >
+                  确认
+                </el-button>
+                <el-button
+                  v-if="row.status === 'failed'"
+                  type="warning"
+                  size="small"
+                  @click="resendAlert(row.id)"
+                >
+                  重发
+                </el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+
+          <div class="pagination-container">
+            <el-pagination
+              v-model:current-page="historyPage"
+              :page-size="20"
+              :total="historyTotal"
+              layout="total, prev, pager, next"
+              @current-change="handleHistoryPageChange"
+            />
+          </div>
+        </el-card>
+      </el-tab-pane>
+
+      <!-- 告警统计 -->
+      <el-tab-pane label="告警统计" name="stats">
+        <el-card class="config-card">
+          <template #header>
+            <span>告警统计（近7天）</span>
+          </template>
+
+          <el-row :gutter="20">
+            <el-col :span="6">
+              <el-statistic title="总告警数" :value="alertStats.total" />
+            </el-col>
+            <el-col :span="6">
+              <el-statistic title="已发送" :value="alertStats.sent_count" />
+            </el-col>
+            <el-col :span="6">
+              <el-statistic title="发送失败" :value="alertStats.failed_count" />
+            </el-col>
+            <el-col :span="6">
+              <el-statistic title="成功率" :value="alertStats.total > 0 ? ((alertStats.sent_count / alertStats.total) * 100).toFixed(1) : 0" suffix="%" />
+            </el-col>
+          </el-row>
+        </el-card>
+      </el-tab-pane>
+    </el-tabs>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import { Plus } from '@element-plus/icons-vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ref, onMounted } from 'vue'
+import { Refresh } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
+import {
+  getAlertConfig,
+  updateAlertConfig,
+  getAlertHistory,
+  acknowledgeAlert as ackAlert,
+  resendAlert as resendAlertApi,
+  getAlertStats
+} from '@/api/alerts'
 
-const activeTab = ref('scene')
+const activeTab = ref('alert')
+const loading = ref(false)
+const saving = ref(false)
+const historyLoading = ref(false)
 
-// 场景配置
-const scenes = ref([
-  { id: 1, name: '客厅场景', location: '客厅', camera: '客厅摄像头', type: '起居室', area: '客厅全区域', enabled: true },
-  { id: 2, name: '卧室场景', location: '卧室', camera: '卧室摄像头', type: '卧室', area: '卧室全区域', enabled: true },
-  { id: 3, name: '卫生间场景', location: '卫生间', camera: '卫生间摄像头', type: '卫生间', area: '卫生间全区域', enabled: true },
-  { id: 4, name: '厨房场景', location: '厨房', camera: '厨房摄像头', type: '厨房', area: '厨房全区域', enabled: false }
-])
-
-const sceneDialogVisible = ref(false)
-const sceneDialogTitle = ref('添加场景')
-const sceneForm = ref({
-  name: '',
-  location: '',
-  camera: '',
-  type: '',
-  area: '',
-  enabled: true
+const alertConfig = ref({
+  emergency_contact: '',
+  emergency_phone: '',
+  email: '',
+  high_alert_methods: ['sms', 'email', 'app'],
+  medium_alert_methods: ['email', 'app'],
+  low_alert_methods: ['app'],
+  quiet_hours_start: '22:00',
+  quiet_hours_end: '07:00',
+  bypass_quiet_hours: true
 })
 
-// 监测时段
-const timePeriods = ref([
-  { id: 1, name: '日间监测', startTime: '06:00', endTime: '22:00', type: 'day', sensitivity: '高', enabled: true },
-  { id: 2, name: '夜间监测', startTime: '22:00', endTime: '06:00', type: 'night', sensitivity: '中', enabled: true },
-  { id: 3, name: '午休时段', startTime: '12:00', endTime: '14:00', type: 'day', sensitivity: '低', enabled: false }
-])
+const quietHoursStart = ref(null)
+const quietHoursEnd = ref(null)
 
-// 告警规则
-const alertRules = ref([
-  { id: 1, name: '跌倒告警规则', eventType: '跌倒检测', riskLevel: 'high', threshold: '置信度>0.8', notificationMethods: ['短信', 'APP推送'], enabled: true },
-  { id: 2, name: '长时间静止告警', eventType: '长时间静止', riskLevel: 'medium', threshold: '静止>30分钟', notificationMethods: ['APP推送'], enabled: true },
-  { id: 3, name: '夜间异常告警', eventType: '夜间异常活动', riskLevel: 'low', threshold: '活动>5次', notificationMethods: ['APP推送'], enabled: true }
-])
+const alertHistory = ref([])
+const historyPage = ref(1)
+const historyTotal = ref(0)
 
-// 用户管理
-const users = ref([
-  { id: 1, username: 'admin', name: '系统管理员', role: 'admin', phone: '13800138000', email: 'admin@example.com', status: 'active' },
-  { id: 2, username: 'family', name: '家属用户', role: 'family', phone: '13800138001', email: 'family@example.com', status: 'active' },
-  { id: 3, username: 'monitor', name: '监护人', role: 'monitor', phone: '13800138002', email: 'monitor@example.com', status: 'active' }
-])
-
-// 系统设置
-const systemSettings = ref({
-  systemName: '独居老人异常行为识别与应急响应系统',
-  dataRetentionDays: 90,
-  alertInterval: 10,
-  privacyMode: true,
-  autoDeleteVideo: true,
-  logLevel: 'info'
+const alertStats = ref({
+  total: 0,
+  sent_count: 0,
+  failed_count: 0,
+  by_type: {},
+  by_risk: {},
+  by_status: {}
 })
+
+const getEventTypeLabel = (type) => {
+  const map = { FALL: '跌倒检测', STILLNESS: '长时间静止', NIGHT_ACTIVITY: '夜间异常' }
+  return map[type] || type
+}
 
 const getRiskLabel = (level) => {
-  const map = { high: '高风险', medium: '中风险', low: '低风险' }
+  const map = { HIGH: '高风险', MEDIUM: '中风险', LOW: '低风险' }
   return map[level] || level
 }
 
 const getRiskTagType = (level) => {
-  const map = { high: 'danger', medium: 'warning', low: 'info' }
+  const map = { HIGH: 'danger', MEDIUM: 'warning', LOW: 'info' }
   return map[level] || ''
 }
 
-const getRoleName = (role) => {
-  const map = { admin: '管理员', family: '家属', monitor: '监护人' }
-  return map[role] || role
+const getStatusLabel = (status) => {
+  const map = { pending: '待发送', sent: '已发送', failed: '失败', acknowledged: '已确认' }
+  return map[status] || status
 }
 
-const getRoleTagType = (role) => {
-  const map = { admin: 'danger', family: 'primary', monitor: 'success' }
-  return map[role] || ''
+const getStatusTagType = (status) => {
+  const map = { pending: 'warning', sent: 'success', failed: 'danger', acknowledged: 'info' }
+  return map[status] || ''
 }
 
-// 场景操作
-const addScene = () => {
-  sceneDialogTitle.value = '添加场景'
-  sceneForm.value = { name: '', location: '', camera: '', type: '', area: '', enabled: true }
-  sceneDialogVisible.value = true
-}
-
-const editScene = (row) => {
-  sceneDialogTitle.value = '编辑场景'
-  sceneForm.value = { ...row }
-  sceneDialogVisible.value = true
-}
-
-const saveScene = () => {
-  if (sceneForm.value.id) {
-    const index = scenes.value.findIndex(s => s.id === sceneForm.value.id)
-    if (index !== -1) {
-      scenes.value[index] = { ...sceneForm.value }
+const loadConfig = async () => {
+  loading.value = true
+  try {
+    const config = await getAlertConfig()
+    if (config) {
+      alertConfig.value = {
+        ...alertConfig.value,
+        ...config,
+        high_alert_methods: config.high_alert_methods?.split(',') || ['sms', 'email', 'app'],
+        medium_alert_methods: config.medium_alert_methods?.split(',') || ['email', 'app'],
+        low_alert_methods: config.low_alert_methods?.split(',') || ['app']
+      }
     }
-  } else {
-    scenes.value.push({
-      ...sceneForm.value,
-      id: Date.now()
+  } catch (error) {
+    console.error('加载配置失败:', error)
+  } finally {
+    loading.value = false
+  }
+}
+
+const saveConfig = async () => {
+  saving.value = true
+  try {
+    await updateAlertConfig({
+      ...alertConfig.value,
+      quiet_hours_start: quietHoursStart.value ? formatTime(quietHoursStart.value) : alertConfig.value.quiet_hours_start,
+      quiet_hours_end: quietHoursEnd.value ? formatTime(quietHoursEnd.value) : alertConfig.value.quiet_hours_end
     })
+    ElMessage.success('配置保存成功')
+  } catch (error) {
+    ElMessage.error('保存失败: ' + error.message)
+  } finally {
+    saving.value = false
   }
-  sceneDialogVisible.value = false
-  ElMessage.success('保存成功')
 }
 
-const deleteScene = (row) => {
-  ElMessageBox.confirm('确定要删除该场景吗？', '提示', {
-    confirmButtonText: '确定',
-    cancelButtonText: '取消',
-    type: 'warning'
-  }).then(() => {
-    const index = scenes.value.findIndex(s => s.id === row.id)
-    if (index !== -1) {
-      scenes.value.splice(index, 1)
-    }
-    ElMessage.success('删除成功')
-  }).catch(() => {})
+const formatTime = (date) => {
+  if (!date) return ''
+  const h = date.getHours().toString().padStart(2, '0')
+  const m = date.getMinutes().toString().padStart(2, '0')
+  return `${h}:${m}`
 }
 
-const handleSceneStatusChange = (row) => {
-  ElMessage.success(row.enabled ? '场景已启用' : '场景已禁用')
-}
-
-// 时段操作
-const addTimePeriod = () => {
-  ElMessage.info('添加时段功能开发中')
-}
-
-const editTimePeriod = (row) => {
-  ElMessage.info('编辑时段功能开发中')
-}
-
-const deleteTimePeriod = (row) => {
-  ElMessageBox.confirm('确定要删除该时段吗？', '提示', {
-    confirmButtonText: '确定',
-    cancelButtonText: '取消',
-    type: 'warning'
-  }).then(() => {
-    const index = timePeriods.value.findIndex(t => t.id === row.id)
-    if (index !== -1) {
-      timePeriods.value.splice(index, 1)
-    }
-    ElMessage.success('删除成功')
-  }).catch(() => {})
-}
-
-const handleTimePeriodStatusChange = (row) => {
-  ElMessage.success(row.enabled ? '时段已启用' : '时段已禁用')
-}
-
-// 告警规则操作
-const addAlertRule = () => {
-  ElMessage.info('添加告警规则功能开发中')
-}
-
-const editAlertRule = (row) => {
-  ElMessage.info('编辑告警规则功能开发中')
-}
-
-const deleteAlertRule = (row) => {
-  ElMessageBox.confirm('确定要删除该告警规则吗？', '提示', {
-    confirmButtonText: '确定',
-    cancelButtonText: '取消',
-    type: 'warning'
-  }).then(() => {
-    const index = alertRules.value.findIndex(a => a.id === row.id)
-    if (index !== -1) {
-      alertRules.value.splice(index, 1)
-    }
-    ElMessage.success('删除成功')
-  }).catch(() => {})
-}
-
-const handleAlertRuleStatusChange = (row) => {
-  ElMessage.success(row.enabled ? '规则已启用' : '规则已禁用')
-}
-
-// 用户操作
-const addUser = () => {
-  ElMessage.info('添加用户功能开发中')
-}
-
-const editUser = (row) => {
-  ElMessage.info('编辑用户功能开发中')
-}
-
-const deleteUser = (row) => {
-  ElMessageBox.confirm('确定要删除该用户吗？', '提示', {
-    confirmButtonText: '确定',
-    cancelButtonText: '取消',
-    type: 'warning'
-  }).then(() => {
-    const index = users.value.findIndex(u => u.id === row.id)
-    if (index !== -1) {
-      users.value.splice(index, 1)
-    }
-    ElMessage.success('删除成功')
-  }).catch(() => {})
-}
-
-// 系统设置操作
-const saveSystemSettings = () => {
-  ElMessage.success('系统设置已保存')
-}
-
-const resetSystemSettings = () => {
-  systemSettings.value = {
-    systemName: '独居老人异常行为识别与应急响应系统',
-    dataRetentionDays: 90,
-    alertInterval: 10,
-    privacyMode: true,
-    autoDeleteVideo: true,
-    logLevel: 'info'
+const loadAlertHistory = async () => {
+  historyLoading.value = true
+  try {
+    const response = await getAlertHistory({ page: historyPage.value, per_page: 20 })
+    alertHistory.value = response.alerts || []
+    historyTotal.value = response.total || 0
+  } catch (error) {
+    console.error('加载告警历史失败:', error)
+  } finally {
+    historyLoading.value = false
   }
-  ElMessage.info('系统设置已重置')
 }
+
+const handleHistoryPageChange = (page) => {
+  historyPage.value = page
+  loadAlertHistory()
+}
+
+const acknowledgeAlert = async (alertId) => {
+  try {
+    await ackAlert(alertId)
+    ElMessage.success('告警已确认')
+    loadAlertHistory()
+  } catch (error) {
+    ElMessage.error('确认失败')
+  }
+}
+
+const resendAlert = async (alertId) => {
+  try {
+    await resendAlertApi(alertId)
+    ElMessage.success('告警已重发')
+    loadAlertHistory()
+  } catch (error) {
+    ElMessage.error('重发失败')
+  }
+}
+
+const loadStats = async () => {
+  try {
+    const stats = await getAlertStats({ days: 7 })
+    alertStats.value = stats
+  } catch (error) {
+    console.error('加载统计失败:', error)
+  }
+}
+
+onMounted(() => {
+  loadConfig()
+  loadAlertHistory()
+  loadStats()
+})
 </script>
 
 <style scoped>
@@ -507,5 +350,17 @@ const resetSystemSettings = () => {
   justify-content: space-between;
   align-items: center;
   font-weight: 600;
+}
+
+.switch-tip {
+  margin-left: 10px;
+  font-size: 12px;
+  color: #999;
+}
+
+.pagination-container {
+  margin-top: 20px;
+  display: flex;
+  justify-content: flex-end;
 }
 </style>
