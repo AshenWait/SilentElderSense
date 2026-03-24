@@ -1,5 +1,6 @@
 from quart import Blueprint, request, jsonify
 from .models import User, get_db
+from .utils import generate_token, token_required
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -41,10 +42,25 @@ async def login():
 
     # 验证密码
     if user and user.check_password(data['password']):
+        token = generate_token(user.id, user.username)
         return jsonify({
             'message': '登录成功',
+            'access_token': token,
+            'token_type': 'Bearer',
             'user_id': user.id,
             'username': user.username
         }), 200
     else:
         return jsonify({'error': '用户名或密码错误'}), 401
+
+
+@auth_bp.route('/api/protected', methods=['GET'])
+@token_required
+async def protected_route():
+    """受保护的路由示例"""
+    user = request.current_user
+    return jsonify({
+        'message': '这是一个受保护的路由',
+        'user_id': user['user_id'],
+        'username': user['username']
+    }), 200
