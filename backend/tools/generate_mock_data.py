@@ -242,11 +242,24 @@ def print_summary():
     print("="*50)
 
 
+def clear_mock_data():
+    """清空模拟数据（保留用户）"""
+    print("[0/4] 清空已有模拟数据...")
+    db.query(AlertHistory).delete()
+    db.query(AlertConfig).delete()
+    db.query(Event).delete()
+    db.commit()
+    print("      已清空事件、告警配置、告警历史数据")
+
+
 def main():
     """主函数"""
     print("="*50)
     print("开始生成模拟数据...")
     print("="*50 + "\n")
+
+    # 清空已有模拟数据
+    clear_mock_data()
 
     # 生成数据
     users = generate_users(5)
