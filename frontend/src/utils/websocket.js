@@ -27,7 +27,7 @@ class VideoWebSocket {
    */
   connect(videoId) {
     this.videoId = videoId
-    const url = `ws://127.0.0.1:8000/ws/detect/${videoId}`
+    const url = `ws://localhost:8000/ws/detect/${videoId}`
 
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       console.log('WebSocket 已经连接')

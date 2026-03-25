@@ -22,13 +22,13 @@ python tools/init_users.py
 python app.py
 ```
 
-后端将在 `http://localhost:5000` 启动
+后端将在 `http://localhost:8000` 启动
 
 ## API 接口
 
 ### 登录接口
 
-- **URL**: `POST http://localhost:5000/api/login`
+- **URL**: `POST http://localhost:8000/api/login`
 - **请求体**:
 ```json
 {
@@ -67,7 +67,7 @@ python app.py
 
 ## 前端配置
 
-前端已配置为连接到 `http://localhost:5000/api`，配置文件位于 `frontend/src/api/index.js`。
+前端已配置为连接到 `http://localhost:8000/api`，配置文件位于 `frontend/src/api/index.js`。
 
 如需修改后端地址，请编辑该文件中的 `baseURL`。
 

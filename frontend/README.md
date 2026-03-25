@@ -49,7 +49,7 @@ npm run preview
 
 ## 后端 API 配置
 
-前端默认连接到 `http://localhost:5000` 的后端 API。
+前端默认连接到 `http://localhost:8000` 的后端 API。
 
 如需修改后端地址，请编辑 `src/api/index.js` 文件。
 
@@ -66,5 +66,5 @@ npm run preview
 ## WebSocket 连接
 
 视频流上传功能使用 WebSocket 连接到后端：
-- WebSocket 地址：`ws://localhost:5000/ws/video`
+- WebSocket 地址：`ws://localhost:8000/ws/video`
 - 协议详情请参考项目根目录的 `VIDEO_STREAM_GUIDE.md`
