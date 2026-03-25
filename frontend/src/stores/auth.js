@@ -13,14 +13,20 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       const response = await loginApi(credentials)
 
-      // 后端返回格式: { message, user_id, username }
+      // 后端返回格式: { message, user_id, username, access_token }
       if (response.user_id && response.username) {
         user.value = {
           id: response.user_id,
           username: response.username
         }
 
-        // 保存到 localStorage
+        // 保存 token 到 localStorage
+        if (response.access_token) {
+          token.value = response.access_token
+          localStorage.setItem('token', response.access_token)
+        }
+
+        // 保存用户信息到 localStorage
         localStorage.setItem('user', JSON.stringify(user.value))
 
         return true

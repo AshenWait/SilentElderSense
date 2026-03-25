@@ -112,9 +112,11 @@ export const useEventsStore = defineStore('events', () => {
       'FALL': '跌倒检测',
       'STILLNESS': '长时间静止',
       'NIGHT_ACTIVITY': '夜间异常活动',
+      'STATIC': '长时间静止',
       'fall': '跌倒检测',
       'stillness': '长时间静止',
-      'night_activity': '夜间异常活动'
+      'night_activity': '夜间异常活动',
+      'static': '长时间静止'
     }
     return map[type] || type
   }
@@ -158,7 +160,7 @@ export const useEventsStore = defineStore('events', () => {
       total: stats.total || 0,
       today: stats.by_status?.pending || 0,
       fall: stats.by_type?.FALL || stats.by_type?.fall || 0,
-      stillness: stats.by_type?.STILLNESS || stats.by_type?.stillness || 0,
+      stillness: (stats.by_type?.STILLNESS || stats.by_type?.stillness || 0) + (stats.by_type?.STATIC || stats.by_type?.static || 0),
       nightActivity: stats.by_type?.NIGHT_ACTIVITY || stats.by_type?.night_activity || 0,
       handled: (stats.by_status?.confirmed || 0) + (stats.by_status?.false_alarm || 0),
       pending: stats.by_status?.pending || 0,

@@ -101,7 +101,7 @@
             <el-select v-model="filterType" placeholder="事件类型" clearable style="width: 150px; margin-right: 10px;" @change="loadEvents">
               <el-option label="全部" value="" />
               <el-option label="跌倒检测" value="FALL" />
-              <el-option label="长时间静止" value="STILLNESS" />
+              <el-option label="长时间静止" value="STATIC" />
               <el-option label="夜间异常活动" value="NIGHT_ACTIVITY" />
             </el-select>
             <el-select v-model="filterStatus" placeholder="处理状态" clearable style="width: 150px; margin-right: 10px;" @change="loadEvents">
@@ -326,7 +326,7 @@ const updateCharts = () => {
         radius: '60%',
         data: [
           { value: stats.by_type?.FALL || 0, name: '跌倒检测' },
-          { value: stats.by_type?.STILLNESS || 0, name: '长时间静止' },
+          { value: (stats.by_type?.STILLNESS || 0) + (stats.by_type?.STATIC || 0), name: '长时间静止' },
           { value: stats.by_type?.NIGHT_ACTIVITY || 0, name: '夜间异常活动' }
         ]
       }]
