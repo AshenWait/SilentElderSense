@@ -249,7 +249,7 @@ const startSession = async () => {
     videoId.value = response.video_id
 
     // 连接 WebSocket
-    ws = new WebSocket(`ws://localhost:5000/ws/detect/${videoId.value}`)
+    ws = new WebSocket(`ws://localhost:8000/ws/detect/${videoId.value}`)
 
     ws.onopen = () => {
       isConnected.value = true

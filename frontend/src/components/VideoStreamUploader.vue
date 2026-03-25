@@ -224,7 +224,7 @@ const startStreaming = () => {
   if (!selectedFile.value) return
 
   // 连接 WebSocket
-  const wsUrl = 'ws://localhost:5000/ws/video'
+  const wsUrl = 'ws://localhost:8000/ws/video'
   videoWebSocket.connect(wsUrl)
 
   connectionStatus.value = 'connecting'

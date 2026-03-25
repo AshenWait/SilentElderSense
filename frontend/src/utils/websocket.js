@@ -2,7 +2,7 @@
  * WebSocket 实时视频流服务
  * 用于流式上传视频帧和接收实时检测结果
  *
- * 后端 WebSocket 接口: ws://localhost:5000/ws/detect/<video_id>
+ * 后端 WebSocket 接口: ws://localhost:8000/ws/detect/<video_id>
  * 发送: JPEG 字节流或 base64 编码字符串
  * 接收: JSON 检测结果
  */
@@ -27,7 +27,7 @@ class VideoWebSocket {
    */
   connect(videoId) {
     this.videoId = videoId
-    const url = `ws://127.0.0.1:5000/ws/detect/${videoId}`
+    const url = `ws://127.0.0.1:8000/ws/detect/${videoId}`
 
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       console.log('WebSocket 已经连接')
