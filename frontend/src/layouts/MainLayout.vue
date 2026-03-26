@@ -29,6 +29,11 @@
             <span>实时监控</span>
           </el-menu-item>
 
+          <el-menu-item index="/video-detect">
+            <el-icon><VideoPlay /></el-icon>
+            <span>视频检测</span>
+          </el-menu-item>
+
           <el-menu-item v-if="authStore.isAdmin" index="/system">
             <el-icon><Setting /></el-icon>
             <span>系统管理</span>
@@ -84,7 +89,7 @@ import { useEventsStore } from '@/stores/events'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import {
   Monitor, DataAnalysis, TrendCharts, VideoCamera,
-  Setting, DataBoard, UserFilled, Bell
+  Setting, DataBoard, UserFilled, Bell, VideoPlay
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
