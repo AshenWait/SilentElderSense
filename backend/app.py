@@ -4,6 +4,7 @@ from auth import init_db, auth_bp
 from detect import detect_bp
 from events import events_bp
 from alerts import alerts_bp
+from detect.BackendMonitoring import monitoring_bp
 
 app = Quart(__name__)
 app.config.from_object(Config)
@@ -19,6 +20,7 @@ app.register_blueprint(auth_bp)
 app.register_blueprint(detect_bp)
 app.register_blueprint(events_bp)
 app.register_blueprint(alerts_bp)
+app.register_blueprint(monitoring_bp)
 
 # CORS 中间件
 @app.after_request
