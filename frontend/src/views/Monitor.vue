@@ -11,61 +11,28 @@
           <span v-if="videoId" class="video-id">会话ID: {{ videoId }}</span>
         </div>
         <div class="actions">
-          <!-- 模式切换 -->
-          <el-radio-group v-model="monitorMode" @change="handleModeChange" :disabled="isConnected">
-            <el-radio-button value="video">视频文件</el-radio-button>
-            <el-radio-button value="camera">摄像头</el-radio-button>
-          </el-radio-group>
-
-          <!-- 视频文件模式 -->
-          <template v-if="monitorMode === 'video'">
-            <el-upload
-              ref="uploadRef"
-              :auto-upload="false"
-              :show-file-list="false"
-              accept="video/*"
-              :on-change="handleVideoSelect"
-            >
-              <el-button type="primary" :icon="Upload">
-                选择视频
-              </el-button>
-            </el-upload>
-          </template>
-
-          <!-- 摄像头模式 -->
-          <template v-if="monitorMode === 'camera'">
-            <el-select
-              v-model="selectedCameraId"
-              placeholder="选择摄像头"
-              :disabled="isConnected"
-              style="width: 200px"
-            >
-              <el-option
-                v-for="(camera, index) in cameraDevices"
-                :key="camera.deviceId"
-                :label="camera.label || `摄像头 ${index + 1}`"
-                :value="camera.deviceId"
-              />
-            </el-select>
-            <el-button
-              :icon="RefreshRight"
-              @click="loadCameraDevices"
-              :disabled="isConnected"
-              title="刷新摄像头列表"
-            />
-          </template>
-
-          <el-button
-            v-if="monitorMode === 'video' && selectedVideo"
-            type="success"
-            :icon="VideoPlay"
-            @click="startSession"
+          <!-- 摄像头选择 -->
+          <el-select
+            v-model="selectedCameraId"
+            placeholder="选择摄像头"
             :disabled="isConnected"
+            style="width: 200px"
           >
-            开始检测
-          </el-button>
+            <el-option
+              v-for="(camera, index) in cameraDevices"
+              :key="camera.deviceId"
+              :label="camera.label || `摄像头 ${index + 1}`"
+              :value="camera.deviceId"
+            />
+          </el-select>
           <el-button
-            v-if="monitorMode === 'camera'"
+            :icon="RefreshRight"
+            @click="loadCameraDevices"
+            :disabled="isConnected"
+            title="刷新摄像头列表"
+          />
+
+          <el-button
             type="success"
             :icon="VideoPlay"
             @click="startCameraDetection"
@@ -83,28 +50,10 @@
           </el-button>
         </div>
       </div>
-      <div v-if="monitorMode === 'video' && selectedVideo" class="video-info">
-        <el-tag>视频: {{ selectedVideo.name }}</el-tag>
-        <span class="video-size">大小: {{ formatFileSize(selectedVideo.size) }}</span>
-      </div>
-      <div v-if="monitorMode === 'camera' && isConnected" class="camera-info">
+      <div v-if="isConnected" class="camera-info">
         <el-tag type="success">摄像头运行中</el-tag>
         <span class="fps-info">帧率: {{ currentFps }} FPS</span>
         <span class="duration-info">时长: {{ formatDuration(cameraDuration) }}</span>
-      </div>
-    </el-card>
-
-    <!-- 进度条（视频模式） -->
-    <el-card v-if="monitorMode === 'video' && isConnected && videoProgress > 0" class="progress-card">
-      <el-progress
-        :percentage="videoProgress"
-        :format="progressFormat"
-        :stroke-width="20"
-        :color="progressColor"
-      />
-      <div class="progress-info">
-        <span>已处理: {{ processedFrames }} 帧</span>
-        <span>检测事件: {{ totalEvents }} 个</span>
       </div>
     </el-card>
 
@@ -114,26 +63,26 @@
         <el-card class="video-card">
           <template #header>
             <div class="card-header">
-              <span>{{ monitorMode === 'video' ? '实时监控' : '摄像头监控' }}</span>
+              <span>摄像头监控</span>
               <el-tag v-if="isConnected" type="success">检测中</el-tag>
             </div>
           </template>
 
           <div class="video-container">
-            <div v-if="!isConnected && !previewUrl && !cameraStream" class="placeholder">
+            <!-- 占位提示 -->
+            <div v-show="!isConnected && !cameraStream" class="placeholder">
               <el-icon class="placeholder-icon"><VideoCamera /></el-icon>
-              <p>{{ monitorMode === 'video' ? '选择视频文件开始检测' : '选择摄像头开始检测' }}</p>
+              <p>选择摄像头开始检测</p>
             </div>
-            <div v-else class="detection-view">
+            <!-- 视频和检测层（始终渲染） -->
+            <div v-show="isConnected || cameraStream" class="detection-view">
               <video
                 ref="videoRef"
-                :src="monitorMode === 'video' ? previewUrl : ''"
-                :srcObject="monitorMode === 'camera' ? cameraStream : null"
+                :srcObject="cameraStream"
                 class="video-player"
                 autoplay
                 muted
                 playsinline
-                @loadedmetadata="onVideoLoaded"
               ></video>
               <canvas ref="canvasRef" class="overlay-canvas"></canvas>
               <div class="overlay-info">
@@ -208,22 +157,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, watch } from 'vue'
-import { VideoPlay, VideoPause, VideoCamera, Upload, RefreshRight } from '@element-plus/icons-vue'
+import { ref, onMounted, onUnmounted } from 'vue'
+import { VideoPlay, VideoPause, VideoCamera, RefreshRight } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { createSession, closeSession, getCameraDevices, stopStream } from '@/api/monitor'
 
-// 模式
-const monitorMode = ref('video')
-
-// 视频文件模式
-const selectedVideo = ref(null)
-const previewUrl = ref('')
-const videoProgress = ref(0)
-const processedFrames = ref(0)
-const uploadRef = ref(null)
-
-// 摄像头模式
+// 摄像头
 const cameraDevices = ref([])
 const selectedCameraId = ref('')
 const cameraStream = ref(null)
@@ -245,7 +184,6 @@ const detectionResult = ref({
 })
 
 let ws = null
-let frameInterval = null
 let videoCanvas = null
 let videoCtx = null
 let cameraStartTime = null
@@ -273,59 +211,10 @@ const getEventLabel = (eventType) => {
   return map[eventType] || eventType
 }
 
-const formatFileSize = (bytes) => {
-  if (bytes < 1024) return bytes + ' B'
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
-  return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
-}
-
 const formatDuration = (seconds) => {
   const mins = Math.floor(seconds / 60)
   const secs = seconds % 60
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
-}
-
-const progressFormat = (percentage) => percentage === 100 ? '完成' : `${percentage}%`
-
-const progressColor = (percentage) => {
-  if (percentage < 30) return '#909399'
-  if (percentage < 70) return '#e6a23c'
-  return '#67c23a'
-}
-
-// 模式切换
-const handleModeChange = async (mode) => {
-  if (isConnected.value) {
-    stopSession()
-  }
-  selectedVideo.value = null
-  previewUrl.value = ''
-  videoProgress.value = 0
-  processedFrames.value = 0
-  cameraDuration.value = 0
-
-  // 切换到摄像头模式时加载设备列表
-  if (mode === 'camera') {
-    await loadCameraDevices()
-  }
-}
-
-// 视频文件选择
-const handleVideoSelect = (file) => {
-  if (!file || !file.raw) {
-    ElMessage.error('文件选择失败')
-    return
-  }
-  selectedVideo.value = file.raw
-  previewUrl.value = URL.createObjectURL(file.raw)
-  videoProgress.value = 0
-  processedFrames.value = 0
-  totalEvents.value = 0
-  allEvents.value = []
-}
-
-const onVideoLoaded = () => {
-  // 视频加载完成
 }
 
 // 获取摄像头列表
@@ -336,7 +225,6 @@ const loadCameraDevices = async () => {
     cameraDevices.value = devices
 
     if (devices.length > 0) {
-      // 默认选择第一个有标签的设备
       const deviceWithLabel = devices.find(d => d.label)
       selectedCameraId.value = deviceWithLabel ? deviceWithLabel.deviceId : devices[0].deviceId
       ElMessage.success(`找到 ${devices.length} 个摄像头设备`)
@@ -352,58 +240,6 @@ const loadCameraDevices = async () => {
     } else {
       ElMessage.error('获取摄像头失败: ' + error.message)
     }
-  }
-}
-
-// 视频文件检测
-const startSession = async () => {
-  if (!selectedVideo.value) {
-    ElMessage.warning('请先选择视频文件')
-    return
-  }
-
-  try {
-    const response = await createSession()
-    videoId.value = response.video_id
-
-    // 连接 WebSocket
-    ws = new WebSocket(`ws://localhost:8000/ws/detect/${videoId.value}`)
-
-    ws.onopen = () => {
-      isConnected.value = true
-      ElMessage.success('会话创建成功，开始检测')
-      startVideoProcessing()
-    }
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
-        if (data.error) {
-          ElMessage.error(data.error)
-        } else {
-          detectionResult.value = data
-          if (data.events?.length) {
-            totalEvents.value += data.events.length
-            allEvents.value.push(...data.events)
-          }
-          renderFrame(data)
-        }
-      } catch (e) {
-        console.error('解析检测结果失败:', e)
-      }
-    }
-
-    ws.onerror = (error) => {
-      console.error('WebSocket 错误:', error)
-      ElMessage.error('连接错误')
-    }
-
-    ws.onclose = () => {
-      isConnected.value = false
-      stopVideoProcessing()
-    }
-  } catch (error) {
-    ElMessage.error('创建会话失败: ' + error.message)
   }
 }
 
@@ -424,6 +260,14 @@ const startCameraDetection = async () => {
       }
     })
     cameraStream.value = stream
+
+    // 等待 DOM 更新
+    await new Promise(resolve => setTimeout(resolve, 50))
+
+    if (!videoRef.value) {
+      throw new Error('视频元素未初始化')
+    }
+
     videoRef.value.srcObject = stream
 
     // 等待视频加载
@@ -512,7 +356,7 @@ const startCameraFrameSending = () => {
   videoCtx = videoCanvas.getContext('2d')
 
   const sendFrame = () => {
-    if (!isConnected.value || monitorMode.value !== 'camera') {
+    if (!isConnected.value) {
       return
     }
 
@@ -535,67 +379,8 @@ const startCameraFrameSending = () => {
   requestAnimationFrame(sendFrame)
 }
 
-// 视频文件处理
-const startVideoProcessing = () => {
-  if (!videoRef.value) return
-
-  const video = videoRef.value
-  video.currentTime = 0
-  video.playbackRate = 1.0
-
-  // 创建离屏 canvas 用于提取帧
-  videoCanvas = document.createElement('canvas')
-  videoCanvas.width = 640
-  videoCanvas.height = 480
-  videoCtx = videoCanvas.getContext('2d')
-
-  video.play().catch(e => console.error('视频播放失败:', e))
-
-  // 逐帧提取并发送
-  let lastTime = 0
-  const fps = 10 // 每秒发送 10 帧
-
-  const processFrame = () => {
-    if (!isConnected.value || video.ended) {
-      if (video.ended) {
-        videoProgress.value = 100
-        ElMessage.success('视频处理完成')
-      }
-      return
-    }
-
-    const currentTime = video.currentTime
-    if (currentTime - lastTime >= 1 / fps) {
-      lastTime = currentTime
-
-      // 更新进度
-      videoProgress.value = Math.round((video.currentTime / video.duration) * 100)
-      processedFrames.value++
-
-      // 提取帧数据
-      videoCtx.drawImage(video, 0, 0, videoCanvas.width, videoCanvas.height)
-
-      // 转换为 JPEG 并发送
-      videoCanvas.toBlob((blob) => {
-        if (blob && ws && ws.readyState === WebSocket.OPEN) {
-          blob.arrayBuffer().then(buffer => {
-            ws.send(buffer)
-          })
-        }
-      }, 'image/jpeg', 0.8)
-    }
-
-    requestAnimationFrame(processFrame)
-  }
-
-  requestAnimationFrame(processFrame)
-}
-
 // 停止处理
 const stopVideoProcessing = () => {
-  if (videoRef.value && monitorMode.value === 'video') {
-    videoRef.value.pause()
-  }
   videoCanvas = null
   videoCtx = null
 
@@ -646,7 +431,6 @@ const renderFrame = (data) => {
   // 绘制检测框
   data.persons.forEach(person => {
     const [x1, y1, x2, y2] = person.box || [0, 0, 100, 100]
-    // 缩放到 canvas 尺寸
     const scaleX = width / 640
     const scaleY = height / 480
 
@@ -669,14 +453,12 @@ onMounted(() => {
     canvasRef.value.width = 640
     canvasRef.value.height = 480
   }
-  // 不在页面加载时请求摄像头权限，等用户切换到摄像头模式时再请求
+  // 页面加载时获取摄像头列表
+  loadCameraDevices()
 })
 
 onUnmounted(() => {
   stopSession()
-  if (previewUrl.value) {
-    URL.revokeObjectURL(previewUrl.value)
-  }
 })
 </script>
 
@@ -722,7 +504,7 @@ onUnmounted(() => {
   align-items: center;
 }
 
-.video-info, .camera-info {
+.camera-info {
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid #eee;
@@ -731,24 +513,9 @@ onUnmounted(() => {
   gap: 12px;
 }
 
-.video-size, .fps-info, .duration-info {
+.fps-info, .duration-info {
   color: #999;
   font-size: 12px;
-}
-
-.progress-card {
-  border: none;
-  border-radius: 12px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
-  margin-bottom: 20px;
-}
-
-.progress-info {
-  margin-top: 10px;
-  display: flex;
-  justify-content: space-between;
-  color: #666;
-  font-size: 14px;
 }
 
 .video-card, .info-card {
