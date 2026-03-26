@@ -9,6 +9,9 @@ from detect.BackendMonitoring import monitoring_bp
 app = Quart(__name__)
 app.config.from_object(Config)
 
+# 允许上传大文件（最大 500MB）
+app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024
+
 # 初始化数据库
 init_db(app)
 

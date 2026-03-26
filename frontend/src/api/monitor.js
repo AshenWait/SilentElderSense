@@ -16,14 +16,28 @@ export function closeSession(videoId) {
   })
 }
 
-// WebSocket 实时检测
-// 使用方式：
-// const ws = new WebSocket(`ws://localhost:8000/ws/detect/${videoId}`)
-// ws.onopen = () => { ... }
-// ws.onmessage = (event) => { const result = JSON.parse(event.data) }
-// ws.send(frameData) // 发送 JPEG 字节流或 base64 编码
+// 上传视频文件
+export function uploadVideo(file) {
+  const formData = new FormData()
+  formData.append('video', file)
+
+  return request({
+    url: '/video/upload',
+    method: 'post',
+    data: formData,
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 300000  // 5分钟超时
+  })
+}
+
+// WebSocket 实时检测（摄像头）
 export function createDetectWebSocket(videoId) {
   return new WebSocket(`ws://localhost:8000/ws/detect/${videoId}`)
+}
+
+// WebSocket 视频处理
+export function createVideoProcessWebSocket(videoId) {
+  return new WebSocket(`ws://localhost:8000/ws/video/${videoId}`)
 }
 
 // ========== 摄像头相关 API ==========
@@ -61,14 +75,6 @@ export async function getCameraDevices() {
  * @returns {Promise<MediaStream>} 媒体流
  */
 export async function getCameraStream(constraints = {}) {
-  const defaultConstraints = {
-    video: {
-      width: { ideal: 640 },
-      height: { ideal: 480 },
-      facingMode: 'user'
-    }
-  }
-
   const finalConstraints = {
     video: {
       width: { ideal: constraints.width || 640 },

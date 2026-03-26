@@ -1,5 +1,9 @@
 # project
 .vite/
+backend/data/
+
+# AI
+.claude/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

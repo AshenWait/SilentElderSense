@@ -20,7 +20,7 @@ async def register():
     # 创建新用户
     user = User(
         username=data['username'],
-        email=data['email']
+        email=data.get('email')
     )
     user.set_password(data['password'])
 

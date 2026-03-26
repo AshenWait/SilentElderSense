@@ -33,6 +33,12 @@ const routes = [
         meta: { title: '实时监控' }
       },
       {
+        path: 'video-detect',
+        name: 'VideoDetect',
+        component: () => import('@/views/VideoDetect.vue'),
+        meta: { title: '视频检测' }
+      },
+      {
         path: 'system',
         name: 'System',
         component: () => import('@/views/System.vue'),

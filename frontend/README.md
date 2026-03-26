@@ -13,6 +13,13 @@ frontend/
 │   ├── styles/       # 样式文件
 │   ├── utils/        # 工具函数
 │   ├── views/        # 页面组件
+│   │   ├── Login.vue        # 登录页
+│   │   ├── Dashboard.vue    # 事件看板
+│   │   ├── Analysis.vue     # 统计分析
+│   │   ├── Monitor.vue      # 实时监控
+│   │   ├── VideoDetect.vue  # 视频检测
+│   │   ├── System.vue       # 系统管理
+│   │   └── Visualization.vue # 可视化大屏
 │   ├── App.vue       # 根组件
 │   └── main.js       # 入口文件
 ├── index.html        # HTML 模板
@@ -58,13 +65,18 @@ npm run preview
 - 用户登录认证
 - 事件看板
 - 统计分析
-- 实时监控
+- 实时监控（摄像头实时检测）
+- 视频检测（上传视频文件检测）
 - 系统管理
 - 可视化大屏
-- **流式视频上传与实时检测**（新增）
 
-## WebSocket 连接
+## WebSocket 接口
 
-视频流上传功能使用 WebSocket 连接到后端：
-- WebSocket 地址：`ws://localhost:8000/ws/video`
-- 协议详情请参考项目根目录的 `VIDEO_STREAM_GUIDE.md`
+前端通过 WebSocket 与后端通信：
+
+| 端点 | 用途 |
+|------|------|
+| `ws://localhost:8000/ws/video/<video_id>` | 视频文件处理（上传后处理） |
+| `ws://localhost:8000/ws/detect/<video_id>` | 实时帧检测（摄像头） |
+
+详细协议请参考 `backend/core/README.md`。
