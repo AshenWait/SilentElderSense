@@ -100,8 +100,8 @@
             <span class="value">{{ formatTime(currentFrameTime) }}</span>
           </div>
           <div class="info-item">
-            <span class="label">检测人数：</span>
-            <span class="value">{{ currentResult.persons?.length || 0 }}</span>
+            <span class="label">风险人数：</span>
+            <span class="value">{{ riskyPersonCount }}</span>
           </div>
           <div class="info-item">
             <span class="label">已处理：</span>
@@ -112,23 +112,14 @@
 
       <!-- 当前帧检测结果 -->
       <div v-if="currentResult.persons?.length" class="detection-result">
-        <h4>检测结果</h4>
+        <h4>风险状态</h4>
         <div class="person-tags">
           <el-tag
             v-for="person in currentResult.persons"
             :key="person.person_id"
-            :type="getPersonTagType(person.class_name)"
+            :type="getRiskTagType(person.risk_level)"
           >
-            {{ getPersonLabel(person.class_name) }} ({{ (person.confidence * 100).toFixed(0) }}%)
-          </el-tag>
-        </div>
-        <div v-if="currentResult.events?.length" class="event-tags">
-          <el-tag
-            v-for="(event, idx) in currentResult.events"
-            :key="idx"
-            :type="getEventTagType(event.risk_level)"
-          >
-            ⚠️ {{ getEventLabel(event.event_type) }}
+            {{ getRiskLabel(person.risk_level, person.risk_reason) }}
           </el-tag>
         </div>
       </div>
@@ -137,10 +128,11 @@
 </template>
 
 <script setup>
-import { ref, onUnmounted } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 import { Upload, VideoCamera } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { uploadVideo, createVideoProcessWebSocket } from '@/api/monitor'
+import { getRiskTagType, getRiskLabel } from '@/utils/risk'
 
 // 状态
 const uploadRef = ref(null)
@@ -157,8 +149,13 @@ const videoId = ref('')
 // 帧显示
 const currentFrameImage = ref(null)
 const currentFrameTime = ref(0)
-const currentResult = ref({ persons: [], events: [] })
+const currentResult = ref({ persons: [] })
 const processedCount = ref(0)
+
+// 计算属性：避免模板中重复过滤
+const riskyPersonCount = computed(() => {
+  return (currentResult.value.persons || []).filter(p => p.risk_level !== 'NORMAL').length
+})
 
 let ws = null
 
@@ -179,26 +176,6 @@ const formatTime = (seconds) => {
   const s = Math.floor(seconds)
   const m = Math.floor(s / 60)
   return `${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
-}
-
-const getPersonTagType = (className) => {
-  const map = { 'fallen': 'danger', 'falling': 'warning', 'normal': 'success', 'stillness': 'warning' }
-  return map[className] || 'info'
-}
-
-const getPersonLabel = (className) => {
-  const map = { 'fallen': '已跌倒', 'falling': '跌倒中', 'normal': '正常', 'stillness': '静止' }
-  return map[className] || className
-}
-
-const getEventTagType = (riskLevel) => {
-  const map = { 'HIGH': 'danger', 'MEDIUM': 'warning', 'LOW': 'info' }
-  return map[riskLevel] || 'info'
-}
-
-const getEventLabel = (eventType) => {
-  const map = { 'FALL': '跌倒检测', 'STILLNESS': '长时间静止', 'NIGHT_ACTIVITY': '夜间异常' }
-  return map[eventType] || eventType
 }
 
 // 选择视频
@@ -289,7 +266,7 @@ const handleMessage = (data) => {
 // 渲染帧
 const renderFrame = (data) => {
   currentFrameTime.value = data.frame_id
-  currentResult.value = { persons: data.persons || [], events: data.events || [] }
+  currentResult.value = { persons: data.persons || [] }
 
   if (!data.image || !canvasRef.value) return
 
@@ -334,7 +311,7 @@ const resetState = () => {
   statusText.value = ''
   currentFrameImage.value = null
   currentFrameTime.value = 0
-  currentResult.value = { persons: [], events: [] }
+  currentResult.value = { persons: [] }
   processedCount.value = 0
   isCompleted.value = false
 }
@@ -473,13 +450,9 @@ onUnmounted(() => {
   color: #303133;
 }
 
-.person-tags, .event-tags {
+.person-tags {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-}
-
-.event-tags {
-  margin-top: 8px;
 }
 </style>

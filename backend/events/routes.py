@@ -159,7 +159,7 @@ async def update_event(event_id: int):
 
     if 'status' in data:
         event.status = data['status']
-        event.handled_at = datetime.utcnow()
+        event.handled_at = datetime.now()
 
     if 'notes' in data:
         event.notes = data['notes']
@@ -185,7 +185,7 @@ async def event_stats():
     user_id = request.current_user['user_id']
     days = int(request.args.get('days', 7))
 
-    start_date = datetime.utcnow() - timedelta(days=days)
+    start_date = datetime.now() - timedelta(days=days)
 
     db = next(get_db())
     query = db.query(Event).filter(

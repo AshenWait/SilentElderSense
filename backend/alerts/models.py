@@ -38,8 +38,8 @@ class AlertConfig(Base):
     # 高风险事件是否忽略免打扰
     bypass_quiet_hours = Column(Boolean, default=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
     def to_dict(self):
         return {
@@ -87,7 +87,7 @@ class AlertHistory(Base):
     # 接收者信息
     recipient = Column(String(128), nullable=True)    # 手机号/邮箱
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now)
 
     def to_dict(self):
         return {

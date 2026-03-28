@@ -60,3 +60,23 @@ def token_required(f):
         return await f(*args, **kwargs)
 
     return decorated_function
+
+
+def admin_required(f):
+    """管理员权限装饰器（需要在 token_required 之后使用）"""
+    @wraps(f)
+    async def decorated_function(*args, **kwargs):
+        # 检查用户是否为管理员
+        from auth.models import SessionLocal, User
+        user_id = request.current_user.get('user_id')
+
+        db = SessionLocal()
+        user = db.query(User).filter(User.id == user_id).first()
+        db.close()
+
+        if not user or not user.is_admin:
+            return jsonify({'error': '需要管理员权限'}), 403
+
+        return await f(*args, **kwargs)
+
+    return decorated_function

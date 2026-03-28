@@ -6,7 +6,8 @@ export const useAuthStore = defineStore('auth', () => {
   const user = ref(null)
   const token = ref(localStorage.getItem('token') || null)
 
-  const isAuthenticated = computed(() => !!user.value)
+  // 同时检查 token 和 user 才认为已登录
+  const isAuthenticated = computed(() => !!token.value && !!user.value)
   const isAdmin = computed(() => user.value?.username === 'admin')
 
   const login = async (credentials) => {
@@ -45,16 +46,25 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem('user')
   }
 
-  // 初始化用户信息
+  // 初始化用户信息（必须同时有 token 和 user）
   const initUser = () => {
+    const savedToken = localStorage.getItem('token')
     const savedUser = localStorage.getItem('user')
-    if (savedUser) {
+
+    // 只有两者都存在才恢复登录状态
+    if (savedToken && savedUser) {
       try {
         user.value = JSON.parse(savedUser)
+        token.value = savedToken
       } catch (error) {
         console.error('解析用户信息失败:', error)
+        localStorage.removeItem('token')
         localStorage.removeItem('user')
       }
+    } else {
+      // 清除不完整的登录状态
+      localStorage.removeItem('token')
+      localStorage.removeItem('user')
     }
   }
 

@@ -12,10 +12,7 @@
 from .types import (
     PersonResult,
     FrameResult,
-    Event,
     SessionResult,
-    EventType,
-    RiskLevel,
 )
 
 from .fall_detector import FallDetector
@@ -26,8 +23,5 @@ __all__ = [
     # 类型
     'PersonResult',
     'FrameResult',
-    'Event',
     'SessionResult',
-    'EventType',
-    'RiskLevel',
 ]

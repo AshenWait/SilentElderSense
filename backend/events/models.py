@@ -1,7 +1,7 @@
 """
 事件数据模型
 """
-from sqlalchemy import Column, Integer, String, DateTime, Float, Text
+from sqlalchemy import Column, Integer, String, DateTime, Text
 from datetime import datetime
 from auth.models import Base
 
@@ -20,9 +20,8 @@ class Event(Base):
     risk_level = Column(String(16), nullable=False)  # LOW, MEDIUM, HIGH
 
     # 时间信息
-    start_time = Column(DateTime, nullable=False)
-    end_time = Column(DateTime, nullable=False)
-    duration = Column(Float, nullable=False)  # 持续时长（秒）
+    start_time = Column(DateTime, nullable=False)  # 开始时间（固定）
+    end_time = Column(DateTime, nullable=False)    # 结束时间（实时更新）
 
     # 附加信息
     frame_count = Column(Integer, default=0)  # 涉及帧数
@@ -34,7 +33,14 @@ class Event(Base):
     handled_at = Column(DateTime, nullable=True)  # 处理时间
     handled_by = Column(Integer, nullable=True)  # 处理人ID
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now)
+
+    @property
+    def duration(self):
+        """持续时长（秒），实时计算"""
+        if self.start_time and self.end_time:
+            return (self.end_time - self.start_time).total_seconds()
+        return 0
 
     def to_dict(self):
         """转换为字典"""

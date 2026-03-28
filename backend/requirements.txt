@@ -7,6 +7,7 @@ pyjwt
 onnxruntime-gpu  # GPU推理（无CUDA自动回退CPU）；纯CPU环境改为 onnxruntime
 opencv-python
 numpy
+boxmot
 
 # 测试依赖
 pytest

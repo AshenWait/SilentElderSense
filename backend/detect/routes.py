@@ -6,13 +6,23 @@
     WebSocket /ws/video/<video_id> - 实时返回处理进度和检测结果
 """
 import os
+import time
 import uuid
 import asyncio
-from datetime import datetime
+import base64
+import struct
 from quart import Blueprint, jsonify, request, websocket
 import cv2
 import numpy as np
 from core import FallDetector
+from .risk_engine import risk_engine, RISK_COLORS_BGR, RISK_REASON_LABELS
+from .service import get_detection_config_service
+from .models import DetectionConfig
+from auth.utils import token_required
+from auth.models import get_db
+from events.models import Event
+from alerts.service import AlertService
+from datetime import datetime
 
 detect_bp = Blueprint('detect', __name__)
 
@@ -31,7 +41,7 @@ def get_detector() -> FallDetector:
     """获取全局检测器实例"""
     global _detector
     if _detector is None:
-        _detector = FallDetector()
+        _detector = FallDetector(model_path="core/models/fall_detection_v1.onnx")
     return _detector
 
 
@@ -85,8 +95,7 @@ async def process_video_ws(video_id: str):
         "type": "progress" | "frame" | "complete" | "error",
         "progress": 0-100,        // 进度时
         "frame_id": 1.5,          // 帧结果时
-        "persons": [...],         // 帧结果时
-        "events": [...],          // 帧结果时
+        "persons": [...],         // 帧结果时，每人含 risk_level/risk_reason/box
         "total_frames": 100,      // 完成时
         "results": [...]          // 完成时
     }
@@ -106,6 +115,7 @@ async def process_video_ws(video_id: str):
 
     detector = get_detector()
     session_id = detector.create_session()
+    risk_engine.create_session(session_id, is_live=False)
 
     try:
         cap = cv2.VideoCapture(video_path)
@@ -116,7 +126,7 @@ async def process_video_ws(video_id: str):
 
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         fps = cap.get(cv2.CAP_PROP_FPS) or 25
-        frame_interval = 1  # 处理每一帧
+        frame_interval = 1
 
         await websocket.send_json({
             'type': 'info',
@@ -136,66 +146,52 @@ async def process_video_ws(video_id: str):
 
             frame_count += 1
 
-            # 按间隔采样
             if frame_count % frame_interval == 0:
-                # 计算帧时间戳（秒）
                 frame_time = frame_count / fps
-
-                # 缩放帧尺寸以提高处理速度
                 resized = cv2.resize(frame, (640, 480))
 
                 # 检测
-                timestamp = datetime.now().timestamp()
-                result = await detector.process_frame_async(session_id, resized, timestamp)
+                result = await detector.process_frame_async(session_id, resized)
+                now = time.time()
 
-                # 在帧上绘制检测框
-                for person in result.frame_result.persons:
-                    x1, y1, x2, y2 = [int(x) for x in person.box]
-                    # fallen 红色, falling 黄色, 其他绿色
-                    color = (0, 0, 255) if person.class_name == 'fallen' else \
-                            (0, 255, 255) if person.class_name == 'falling' else (0, 255, 0)
+                # 风险判定
+                risk_results, _ = risk_engine.process(
+                    session_id, result.frame_result.persons, now
+                )
 
+                # 在帧上绘制风险框
+                for risk in risk_results:
+                    x1, y1, x2, y2 = [int(x) for x in risk.box]
+                    color = RISK_COLORS_BGR.get(risk.risk_level, (0, 255, 0))
                     cv2.rectangle(resized, (x1, y1), (x2, y2), color, 2)
+                    cv2.putText(resized, risk.risk_level, (x1, y1 - 8),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
-                    label = f"{person.class_name} {person.confidence * 100:.0f}%"
-                    cv2.putText(resized, label, (x1, y1 - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-
-                # 编码帧图像为 hex
+                # 编码帧图像
                 _, buffer = cv2.imencode('.jpg', resized, [cv2.IMWRITE_JPEG_QUALITY, 80])
                 frame_hex = buffer.tobytes().hex()
 
-                # 构建响应（不再需要 persons 的 box 信息，前端只展示）
                 frame_result = {
                     'type': 'frame',
                     'frame_id': round(frame_time, 2),
                     'frame_number': frame_count,
                     'image': frame_hex,
-                    'persons': [],
-                    'events': []
+                    'persons': [
+                        {
+                            'person_id': r.person_id,
+                            'box': [round(x, 1) for x in r.box],
+                            'risk_level': r.risk_level,
+                            'risk_reason': r.risk_reason,
+                        }
+                        for r in risk_results
+                    ],
                 }
-
-                for person in result.frame_result.persons:
-                    frame_result['persons'].append({
-                        'person_id': person.person_id,
-                        'class_name': person.class_name,
-                        'confidence': round(person.confidence, 3)
-                    })
-
-                for event in result.events:
-                    frame_result['events'].append({
-                        'person_id': event.person_id,
-                        'event_type': event.event_type.name,
-                        'risk_level': event.risk_level.name,
-                        'duration': round(event.duration, 2)
-                    })
 
                 all_results.append(frame_result)
                 processed_count += 1
 
-                # 发送帧结果
                 await websocket.send_json(frame_result)
 
-                # 发送进度
                 progress = int((frame_count / total_frames) * 100)
                 await websocket.send_json({
                     'type': 'progress',
@@ -205,8 +201,8 @@ async def process_video_ws(video_id: str):
 
         cap.release()
         detector.close_session(session_id)
+        risk_engine.close_session(session_id)
 
-        # 发送完成消息
         await websocket.send_json({
             'type': 'complete',
             'total_frames': frame_count,
@@ -217,42 +213,187 @@ async def process_video_ws(video_id: str):
     except Exception as e:
         await websocket.send_json({'type': 'error', 'message': str(e)})
     finally:
-        await websocket.close()
+        await websocket.close(1000)  # 1000 = 正常关闭
 
 
-# ── 保留原有的实时帧检测接口（供摄像头使用） ──────────────────────────
-import struct
-import base64
-
+# ── 实时帧检测接口（供摄像头使用） ──────────────────────────
 
 @detect_bp.route('/api/session/create', methods=['POST'])
+@token_required
 async def create_session():
-    """创建实时检测会话"""
+    """创建实时检测会话（需要登录）"""
+    user_id = request.current_user['user_id']
+
     detector = get_detector()
     video_id = detector.create_session()
-    return jsonify({'video_id': video_id})
+    risk_engine.create_session(video_id, is_live=True, user_id=user_id)
+    return jsonify({'video_id': video_id, 'user_id': user_id})
 
 
 @detect_bp.route('/api/session/close/<video_id>', methods=['POST'])
+@token_required
 async def close_session(video_id: str):
     """关闭实时检测会话"""
+    user_id = request.current_user['user_id']
     detector = get_detector()
-    success = detector.close_session(video_id)
-    return jsonify({'success': success})
+    now = time.time()
+    ended_changes = risk_engine.close_session(video_id, now=now)
+    detector.close_session(video_id)
+
+    if ended_changes:
+        from auth.models import SessionLocal
+        db = SessionLocal()
+        try:
+            for ch in ended_changes:
+                _persist_event_change(db, ch, video_id, user_id)
+            db.commit()
+        except Exception as e:
+            print(f"[ERROR] 事件持久化失败: {e}")
+            db.rollback()
+        finally:
+            db.close()
+
+        # 告警触发（在事务提交后单独处理）
+        for ch in ended_changes:
+            if ch.change_type == 'ended' and ch.risk_level in ['HIGH', 'MEDIUM']:
+                try:
+                    alert_service = AlertService()
+                    # duration 从 start_time 和 end_time 计算
+                    duration = ch.end_ts - ch.start_ts if ch.end_ts and ch.start_ts else 0
+                    alert_service.trigger_alert(
+                        user_id=user_id,
+                        event_id=None,
+                        event_type=ch.event_type,
+                        risk_level=ch.risk_level,
+                        duration=duration
+                    )
+                except Exception as e:
+                    print(f"[WARN] 告警触发失败: {e}")
+
+    return jsonify({'success': True})
 
 
 @detect_bp.websocket('/ws/detect/<video_id>')
 async def detect_ws(video_id: str):
-    """WebSocket 实时帧检测（摄像头）"""
+    """WebSocket 实时帧检测（摄像头）- 跳帧策略，跳过队列中的旧帧"""
     detector = get_detector()
 
     if detector.session_manager.get_session(video_id) is None:
-        await websocket.send_json({'error': 'Invalid video_id'})
+        await websocket.send_json({'type': 'error', 'message': 'Invalid video_id'})
         await websocket.close()
         return
 
+    processed_count = 0
+    skipped_count = 0
+
+    # 活跃事件跟踪：{(person_id, event_type): last_update_time}
+    active_events = {}
+    last_db_update = time.time()
+
+    async def update_active_events_end_time():
+        """每秒更新活跃事件的 end_time"""
+        nonlocal last_db_update
+        now = time.time()
+
+        # 每秒更新一次
+        if now - last_db_update < 1.0:
+            return
+
+        if not active_events:
+            return
+
+        user_id = risk_engine.get_user_id(video_id)
+        if not user_id:
+            return
+
+        from auth.models import SessionLocal
+        db = SessionLocal()
+        try:
+            now_dt = datetime.fromtimestamp(now)
+            for (person_id, event_type) in active_events.keys():
+                db.query(Event).filter(
+                    Event.video_id == video_id,
+                    Event.person_id == person_id,
+                    Event.event_type == event_type,
+                ).update({'end_time': now_dt})
+            db.commit()
+            last_db_update = now
+        except Exception as e:
+            print(f"[ERROR] 更新 end_time 失败: {e}")
+            db.rollback()
+        finally:
+            db.close()
+
+    async def process_frame(frame, frame_ts):
+        """处理单个帧"""
+        nonlocal processed_count
+
+        resized = cv2.resize(frame, (640, 480))
+
+        result = await detector.process_frame_async(video_id, resized)
+        now = time.time()
+        risk_results, event_changes = risk_engine.process(video_id, result.frame_result.persons, now)
+
+        # 持久化事件变更
+        if event_changes:
+            user_id = risk_engine.get_user_id(video_id)
+            if user_id:
+                from auth.models import SessionLocal
+                db = SessionLocal()
+                try:
+                    for ch in event_changes:
+                        _persist_event_change(db, ch, video_id, user_id)
+                        # 更新活跃事件跟踪
+                        key = (ch.person_id, ch.event_type)
+                        if ch.change_type == 'ended':
+                            active_events.pop(key, None)
+                        else:
+                            active_events[key] = now
+                    db.commit()
+                except Exception as e:
+                    print(f"[ERROR] 事件持久化失败: {e}")
+                    db.rollback()
+                finally:
+                    db.close()
+
+        # 每秒更新活跃事件的 end_time
+        await update_active_events_end_time()
+
+        # 绘制检测框
+        for risk in risk_results:
+            x1, y1, x2, y2 = [int(x) for x in risk.box]
+            color = RISK_COLORS_BGR.get(risk.risk_level, (0, 255, 0))
+            cv2.rectangle(resized, (x1, y1), (x2, y2), color, 2)
+            cv2.putText(resized, risk.risk_level, (x1, y1 - 8),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+
+        # 编码帧图像
+        _, buffer = cv2.imencode('.jpg', resized, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        frame_hex = buffer.tobytes().hex()
+
+        processed_count += 1
+        latency_ms = int((now - frame_ts) * 1000)
+
+        return {
+            'type': 'frame',
+            'frame_id': processed_count,
+            'image': frame_hex,
+            'persons': [
+                {
+                    'person_id': r.person_id,
+                    'box': [round(x, 1) for x in r.box],
+                    'risk_level': r.risk_level,
+                    'risk_reason': r.risk_reason,
+                }
+                for r in risk_results
+            ],
+            'latency_ms': latency_ms,
+            'skipped': skipped_count,
+        }
+
     while True:
         try:
+            # 接收帧
             data = await websocket.receive()
 
             if isinstance(data, bytes):
@@ -264,17 +405,78 @@ async def detect_ws(video_id: str):
                 continue
 
             if frame is None:
-                await websocket.send_json({'error': 'Invalid frame data'})
                 continue
 
-            timestamp = datetime.now().timestamp()
-            result = await detector.process_frame_async(video_id, frame, timestamp)
-            response = build_response(result)
-            await websocket.send_json(response)
+            # 尝试清空队列中的旧帧，只保留最新帧
+            while True:
+                try:
+                    # 非阻塞读取：如果有更多消息，读取并丢弃旧帧
+                    next_data = await asyncio.wait_for(websocket.receive(), timeout=0.001)
+                    if isinstance(next_data, bytes):
+                        next_frame = decode_jpeg(next_data)
+                    elif isinstance(next_data, str):
+                        next_frame = decode_jpeg(base64.b64decode(next_data))
+                    else:
+                        continue
+
+                    if next_frame is not None:
+                        frame = next_frame  # 用新帧覆盖旧帧
+                        skipped_count += 1
+                except asyncio.TimeoutError:
+                    # 队列已空，没有更多消息
+                    break
+                except Exception:
+                    break
+
+            # 处理最新帧
+            frame_ts = time.time()
+            result = await process_frame(frame, frame_ts)
+            await websocket.send_json(result)
 
         except Exception as e:
             print(f"WebSocket error: {e}")
             break
+
+
+def _persist_event_change(db, ch, video_id: str, user_id: int):
+    """将事件变更写入数据库"""
+    if ch.change_type == 'started':
+        # 事件开始：使用 EventChange 中的时间
+        event = Event(
+            user_id=user_id,
+            video_id=video_id,
+            person_id=ch.person_id,
+            event_type=ch.event_type,
+            risk_level=ch.risk_level,
+            start_time=datetime.fromtimestamp(ch.start_ts),
+            end_time=datetime.fromtimestamp(ch.start_ts),
+            frame_count=ch.frame_count,
+            status='pending',
+        )
+        db.add(event)
+    elif ch.change_type == 'risk_upgraded':
+        # 风险升级：使用 start_time 精确匹配事件
+        db.query(Event).filter(
+            Event.video_id == video_id,
+            Event.person_id == ch.person_id,
+            Event.event_type == ch.event_type,
+            Event.start_time == datetime.fromtimestamp(ch.start_ts),
+        ).update({
+            'risk_level': ch.risk_level,
+            'frame_count': ch.frame_count,
+            'end_time': datetime.fromtimestamp(ch.start_ts),
+        })
+    elif ch.change_type == 'ended':
+        # 事件结束：使用 start_time 精确匹配事件
+        db.query(Event).filter(
+            Event.video_id == video_id,
+            Event.person_id == ch.person_id,
+            Event.event_type == ch.event_type,
+            Event.start_time == datetime.fromtimestamp(ch.start_ts),
+        ).update({
+            'end_time': datetime.fromtimestamp(ch.end_ts),
+            'frame_count': ch.frame_count,
+        })
 
 
 def decode_jpeg(data: bytes) -> np.ndarray:
@@ -287,28 +489,68 @@ def decode_jpeg(data: bytes) -> np.ndarray:
         return None
 
 
-def build_response(result) -> dict:
-    """构建 JSON 响应"""
-    response = {
-        'detected': result.frame_result.detected,
-        'persons': [],
-        'events': []
+def build_response(detected: bool, risk_results) -> dict:
+    """构建给前端的 JSON 响应"""
+    return {
+        'detected': detected,
+        'persons': [
+            {
+                'person_id': r.person_id,
+                'box': [round(x, 1) for x in r.box],
+                'risk_level': r.risk_level,
+                'risk_reason': r.risk_reason,
+            }
+            for r in risk_results
+        ],
     }
 
-    for person in result.frame_result.persons:
-        response['persons'].append({
-            'person_id': person.person_id,
-            'class_name': person.class_name,
-            'confidence': round(person.confidence, 3),
-            'box': [round(x, 1) for x in person.box]
-        })
 
-    for event in result.events:
-        response['events'].append({
-            'person_id': event.person_id,
-            'event_type': event.event_type.name,
-            'risk_level': event.risk_level.name,
-            'duration': round(event.duration, 2)
-        })
+# ── 检测配置接口 ──────────────────────────
 
-    return response
+@detect_bp.route('/api/detect/config', methods=['GET'])
+@token_required
+async def get_detect_config():
+    """获取当前用户的检测配置"""
+    user_id = request.current_user['user_id']
+    service = get_detection_config_service()
+    config = service.get_config(user_id)
+    return jsonify(config.to_dict())
+
+
+@detect_bp.route('/api/detect/config', methods=['PUT'])
+@token_required
+async def update_detect_config():
+    """
+    更新当前用户的检测配置
+
+    请求体:
+    {
+        "fallen_confirm_frames": 5,
+        "fallen_escalate_secs": 1.0,
+        "stillness_window_secs": 30.0,
+        "stillness_movement_threshold": 5.0,
+        "stillness_escalate_secs": 60.0,
+        "night_start_hour": 22,
+        "night_end_hour": 7,
+        "lost_grace_secs": 1.0
+    }
+    """
+    user_id = request.current_user['user_id']
+    data = await request.get_json()
+
+    # 过滤有效字段
+    valid_fields = [
+        'fallen_confirm_frames', 'fallen_escalate_secs',
+        'stillness_window_secs', 'stillness_movement_threshold',
+        'stillness_escalate_secs', 'night_start_hour',
+        'night_end_hour', 'lost_grace_secs'
+    ]
+    kwargs = {k: v for k, v in data.items() if k in valid_fields}
+
+    service = get_detection_config_service()
+    config = service.update_config(user_id, **kwargs)
+
+    return jsonify({
+        'message': '检测配置更新成功',
+        'config': config.to_dict()
+    })

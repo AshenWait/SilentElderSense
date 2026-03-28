@@ -212,13 +212,13 @@ class AlertService:
             if alert.alert_level == 1:
                 # 一级响应：本地提醒，仅记录
                 alert.status = 'sent'
-                alert.sent_at = datetime.utcnow()
+                alert.sent_at = datetime.now()
 
             elif alert.alert_level == 2:
                 # 二级响应：管理端告警
                 # TODO: 推送至管理端 WebSocket
                 alert.status = 'sent'
-                alert.sent_at = datetime.utcnow()
+                alert.sent_at = datetime.now()
 
             elif alert.alert_level == 3:
                 # 三级响应：紧急通知
@@ -231,7 +231,7 @@ class AlertService:
                     pass
 
                 alert.status = 'sent'
-                alert.sent_at = datetime.utcnow()
+                alert.sent_at = datetime.now()
 
         except Exception as e:
             alert.status = 'failed'
@@ -245,7 +245,7 @@ class AlertService:
         alert = db.query(AlertHistory).filter_by(id=alert_id).first()
         if alert:
             alert.status = 'acknowledged'
-            alert.acknowledged_at = datetime.utcnow()
+            alert.acknowledged_at = datetime.now()
             alert.acknowledged_by = user_id
             db.commit()
             return True
@@ -257,7 +257,7 @@ class AlertService:
         alert = db.query(AlertHistory).filter_by(id=alert_id).first()
         if alert:
             alert.status = 'sent'
-            alert.sent_at = datetime.utcnow()
+            alert.sent_at = datetime.now()
             db.commit()
             return True
         return False

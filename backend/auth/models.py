@@ -15,7 +15,7 @@ class User(Base):
     email = Column(String(120), unique=True, nullable=True)
     password_hash = Column(String(128), nullable=False)
     is_admin = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now)
 
     def set_password(self, password):
         """密码加密"""

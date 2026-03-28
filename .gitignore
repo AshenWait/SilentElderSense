@@ -1,6 +1,7 @@
 # project
 .vite/
 backend/data/
+temp/
 
 # AI
 .claude/

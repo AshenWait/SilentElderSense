@@ -17,6 +17,7 @@
             placeholder="选择摄像头"
             :disabled="isConnected"
             style="width: 200px"
+            @change="onCameraSelect"
           >
             <el-option
               v-for="(camera, index) in cameraDevices"
@@ -31,15 +32,6 @@
             :disabled="isConnected"
             title="刷新摄像头列表"
           />
-
-          <el-button
-            type="success"
-            :icon="VideoPlay"
-            @click="startCameraDetection"
-            :disabled="isConnected || !selectedCameraId"
-          >
-            开始检测
-          </el-button>
           <el-button
             type="danger"
             :icon="VideoPause"
@@ -54,6 +46,9 @@
         <el-tag type="success">摄像头运行中</el-tag>
         <span class="fps-info">帧率: {{ currentFps }} FPS</span>
         <span class="duration-info">时长: {{ formatDuration(cameraDuration) }}</span>
+        <span class="processed-info">已处理: {{ processedCount }} 帧</span>
+        <span class="latency-info" :class="{ 'latency-high': latencyMs > 200 }">延迟: {{ latencyMs }}ms</span>
+        <span v-if="skippedCount > 0" class="skipped-info">跳帧: {{ skippedCount }}</span>
       </div>
     </el-card>
 
@@ -70,30 +65,27 @@
 
           <div class="video-container">
             <!-- 占位提示 -->
-            <div v-show="!isConnected && !cameraStream" class="placeholder">
+            <div v-show="!isConnected" class="placeholder">
               <el-icon class="placeholder-icon"><VideoCamera /></el-icon>
               <p>选择摄像头开始检测</p>
             </div>
-            <!-- 视频和检测层（始终渲染） -->
-            <div v-show="isConnected || cameraStream" class="detection-view">
-              <video
-                ref="videoRef"
-                :srcObject="cameraStream"
-                class="video-player"
-                autoplay
-                muted
-                playsinline
-              ></video>
-              <canvas ref="canvasRef" class="overlay-canvas"></canvas>
-              <div class="overlay-info">
-                <div class="info-item">
-                  <span class="label">检测人数：</span>
-                  <span class="value">{{ detectionResult.persons?.length || 0 }}</span>
-                </div>
-                <div class="info-item">
-                  <span class="label">事件数：</span>
-                  <span class="value">{{ detectionResult.events?.length || 0 }}</span>
-                </div>
+
+            <!-- 帧画布（与视频检测一致） -->
+            <canvas
+              ref="canvasRef"
+              class="frame-canvas"
+              v-show="isConnected"
+            ></canvas>
+
+            <!-- 叠加信息 -->
+            <div v-if="isConnected" class="overlay-info">
+              <div class="info-item">
+                <span class="label">检测人数：</span>
+                <span class="value">{{ detectionResult.persons?.length || 0 }}</span>
+              </div>
+              <div class="info-item">
+                <span class="label">风险人数：</span>
+                <span class="value">{{ riskyPersonCount }}</span>
               </div>
             </div>
           </div>
@@ -112,39 +104,26 @@
             </div>
             <template v-else>
               <div class="section">
-                <h4>检测到的人员</h4>
+                <h4>风险状态</h4>
                 <div v-if="detectionResult.persons?.length" class="person-list">
                   <div v-for="person in detectionResult.persons" :key="person.person_id" class="person-item">
-                    <el-tag :type="getPersonTagType(person.class_name)" size="small">
-                      {{ getPersonLabel(person.class_name) }}
+                    <el-tag :type="getRiskTagType(person.risk_level)" size="small">
+                      {{ getRiskLabel(person.risk_level, person.risk_reason) }}
                     </el-tag>
-                    <span class="confidence">置信度: {{ (person.confidence * 100).toFixed(1) }}%</span>
+                    <span class="person-id">ID: {{ person.person_id }}</span>
                   </div>
                 </div>
                 <el-empty v-else description="暂无检测结果" :image-size="60" />
               </div>
 
-              <div class="section">
-                <h4>检测事件</h4>
-                <div v-if="detectionResult.events?.length" class="event-list">
-                  <div v-for="(event, index) in detectionResult.events" :key="index" class="event-item">
-                    <el-tag :type="getEventTagType(event.risk_level)" size="small">
-                      {{ getEventLabel(event.event_type) }}
-                    </el-tag>
-                    <span class="duration">持续: {{ event.duration?.toFixed(1) }}秒</span>
-                  </div>
-                </div>
-                <el-empty v-else description="暂无事件" :image-size="60" />
-              </div>
-
               <div class="section" v-if="allEvents.length > 0">
-                <h4>历史事件 ({{ allEvents.length }})</h4>
+                <h4>历史风险记录 ({{ allEvents.length }})</h4>
                 <div class="event-list scrollable">
-                  <div v-for="(event, index) in allEvents.slice(-10).reverse()" :key="index" class="event-item small">
-                    <el-tag :type="getEventTagType(event.risk_level)" size="small">
-                      {{ getEventLabel(event.event_type) }}
+                  <div v-for="event in allEvents.slice().reverse()" :key="event.id" class="event-item small">
+                    <el-tag :type="getRiskTagType(event.risk_level)" size="small">
+                      {{ getEventTypeLabel(event.event_type) }} - {{ event.risk_level }}
                     </el-tag>
-                    <span class="time">{{ event.duration?.toFixed(1) }}s</span>
+                    <span class="time">ID: {{ event.person_id }} | {{ event.duration?.toFixed(1) || 0 }}秒</span>
                   </div>
                 </div>
               </div>
@@ -157,10 +136,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
-import { VideoPlay, VideoPause, VideoCamera, RefreshRight } from '@element-plus/icons-vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { VideoPause, VideoCamera, RefreshRight } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { createSession, closeSession, getCameraDevices, stopStream } from '@/api/monitor'
+import { getEvents } from '@/api/events'
+import { getRiskTagType, getRiskLabel, getEventTypeLabel } from '@/utils/risk'
 
 // 摄像头
 const cameraDevices = ref([])
@@ -168,47 +149,43 @@ const selectedCameraId = ref('')
 const cameraStream = ref(null)
 const currentFps = ref(0)
 const cameraDuration = ref(0)
+const processedCount = ref(0)
+const latencyMs = ref(0)
+const skippedCount = ref(0)
 
 // 通用
-const videoRef = ref(null)
 const canvasRef = ref(null)
 const videoId = ref('')
 const isConnected = ref(false)
-const totalEvents = ref(0)
 const allEvents = ref([])
 
 const detectionResult = ref({
-  detected: false,
   persons: [],
-  events: []
+})
+
+// 计算属性
+const riskyPersonCount = computed(() => {
+  return (detectionResult.value.persons || []).filter(p => p.risk_level !== 'NORMAL').length
 })
 
 let ws = null
-let videoCanvas = null
-let videoCtx = null
+let sendFrameCanvas = null
+let sendFrameCtx = null
+let videoElement = null
 let cameraStartTime = null
 let fpsCounter = 0
 let fpsInterval = null
+let eventRefreshInterval = null  // 事件刷新定时器
+let canSendFrame = true  // 控制发送节奏
 
-// 标签映射
-const getPersonTagType = (className) => {
-  const map = { 'normal': 'success', 'fall': 'danger', 'stillness': 'warning', 'falling': 'warning', 'fallen': 'danger' }
-  return map[className] || 'info'
-}
-
-const getPersonLabel = (className) => {
-  const map = { 'normal': '正常', 'fall': '跌倒', 'stillness': '静止', 'falling': '跌倒中', 'fallen': '已跌倒' }
-  return map[className] || className
-}
-
-const getEventTagType = (riskLevel) => {
-  const map = { 'HIGH': 'danger', 'MEDIUM': 'warning', 'LOW': 'info' }
-  return map[riskLevel] || 'info'
-}
-
-const getEventLabel = (eventType) => {
-  const map = { 'FALL': '跌倒检测', 'STILLNESS': '长时间静止', 'NIGHT_ACTIVITY': '夜间异常', 'STATIC': '长时间静止' }
-  return map[eventType] || eventType
+// 获取事件列表
+const fetchEvents = async () => {
+  try {
+    const res = await getEvents({ per_page: 20 })
+    allEvents.value = res.events || []
+  } catch (e) {
+    console.error('获取事件列表失败:', e)
+  }
 }
 
 const formatDuration = (seconds) => {
@@ -243,6 +220,12 @@ const loadCameraDevices = async () => {
   }
 }
 
+// 选择摄像头后自动开始检测
+const onCameraSelect = async (deviceId) => {
+  if (!deviceId || isConnected.value) return
+  await startCameraDetection()
+}
+
 // 摄像头检测
 const startCameraDetection = async () => {
   if (!selectedCameraId.value) {
@@ -261,20 +244,13 @@ const startCameraDetection = async () => {
     })
     cameraStream.value = stream
 
-    // 等待 DOM 更新
-    await new Promise(resolve => setTimeout(resolve, 50))
+    // 创建隐藏的 video 元素用于提取帧
+    videoElement = document.createElement('video')
+    videoElement.srcObject = stream
+    videoElement.muted = true
+    videoElement.playsInline = true
 
-    if (!videoRef.value) {
-      throw new Error('视频元素未初始化')
-    }
-
-    videoRef.value.srcObject = stream
-
-    // 等待视频加载
-    await new Promise(resolve => {
-      videoRef.value.onloadedmetadata = resolve
-    })
-    await videoRef.value.play()
+    await videoElement.play()
 
     // 创建检测会话
     const response = await createSession()
@@ -286,23 +262,30 @@ const startCameraDetection = async () => {
     ws.onopen = () => {
       isConnected.value = true
       cameraStartTime = Date.now()
+      processedCount.value = 0
       ElMessage.success('摄像头检测已启动')
       startCameraFrameSending()
       startFpsCounter()
+      // 每秒刷新事件列表
+      fetchEvents()
+      eventRefreshInterval = setInterval(fetchEvents, 1000)
     }
 
     ws.onmessage = (event) => {
+      // 收到响应，允许发送下一帧
+      canSendFrame = true
+
       try {
         const data = JSON.parse(event.data)
-        if (data.error) {
-          ElMessage.error(data.error)
-        } else {
-          detectionResult.value = data
-          if (data.events?.length) {
-            totalEvents.value += data.events.length
-            allEvents.value.push(...data.events)
-          }
+        if (data.type === 'error') {
+          ElMessage.error(data.message)
+        } else if (data.type === 'frame') {
+          // 与视频检测一致的渲染逻辑
+          detectionResult.value = { persons: data.persons || [] }
           renderFrame(data)
+          processedCount.value = data.frame_id || processedCount.value + 1
+          latencyMs.value = data.latency_ms || 0
+          skippedCount.value = data.skipped || 0
         }
       } catch (e) {
         console.error('解析检测结果失败:', e)
@@ -317,6 +300,13 @@ const startCameraDetection = async () => {
     ws.onclose = () => {
       isConnected.value = false
       stopFpsCounter()
+      // 停止事件刷新
+      if (eventRefreshInterval) {
+        clearInterval(eventRefreshInterval)
+        eventRefreshInterval = null
+      }
+      // 最后刷新一次事件列表
+      fetchEvents()
     }
   } catch (error) {
     console.error('启动摄像头失败:', error)
@@ -324,7 +314,7 @@ const startCameraDetection = async () => {
   }
 }
 
-// 开始 FPS 计数
+// FPS 计数
 const startFpsCounter = () => {
   fpsCounter = 0
   fpsInterval = setInterval(() => {
@@ -336,7 +326,6 @@ const startFpsCounter = () => {
   }, 1000)
 }
 
-// 停止 FPS 计数
 const stopFpsCounter = () => {
   if (fpsInterval) {
     clearInterval(fpsInterval)
@@ -345,27 +334,29 @@ const stopFpsCounter = () => {
   currentFps.value = 0
 }
 
-// 摄像头发送帧
+// 摄像头发送帧（收到响应后才发送下一帧，避免队列堆积）
 const startCameraFrameSending = () => {
-  if (!videoRef.value) return
-
-  // 创建离屏 canvas 用于提取帧
-  videoCanvas = document.createElement('canvas')
-  videoCanvas.width = 640
-  videoCanvas.height = 480
-  videoCtx = videoCanvas.getContext('2d')
+  sendFrameCanvas = document.createElement('canvas')
+  sendFrameCanvas.width = 640
+  sendFrameCanvas.height = 480
+  sendFrameCtx = sendFrameCanvas.getContext('2d')
 
   const sendFrame = () => {
-    if (!isConnected.value) {
+    if (!isConnected.value || !videoElement) {
       return
     }
 
-    // 提取帧数据
-    videoCtx.drawImage(videoRef.value, 0, 0, videoCanvas.width, videoCanvas.height)
+    // 只有收到上一帧响应后才发送新帧
+    if (!canSendFrame) {
+      requestAnimationFrame(sendFrame)
+      return
+    }
 
-    // 转换为 JPEG 并发送
-    videoCanvas.toBlob((blob) => {
+    sendFrameCtx.drawImage(videoElement, 0, 0, sendFrameCanvas.width, sendFrameCanvas.height)
+
+    sendFrameCanvas.toBlob((blob) => {
       if (blob && ws && ws.readyState === WebSocket.OPEN) {
+        canSendFrame = false  // 等待响应
         blob.arrayBuffer().then(buffer => {
           ws.send(buffer)
           fpsCounter++
@@ -379,24 +370,52 @@ const startCameraFrameSending = () => {
   requestAnimationFrame(sendFrame)
 }
 
-// 停止处理
-const stopVideoProcessing = () => {
-  videoCanvas = null
-  videoCtx = null
+// 渲染帧（与 VideoDetect.vue 一致）
+const renderFrame = (data) => {
+  if (!data.image || !canvasRef.value) return
 
+  const canvas = canvasRef.value
+  const ctx = canvas.getContext('2d')
+
+  // 解码 hex 为 bytes
+  const hex = data.image
+  const bytes = new Uint8Array(hex.length / 2)
+  for (let i = 0; i < hex.length; i += 2) {
+    bytes[i / 2] = parseInt(hex.substr(i, 2), 16)
+  }
+
+  // 创建图像并显示（检测框已在后端绘制）
+  const blob = new Blob([bytes], { type: 'image/jpeg' })
+  const img = new Image()
+  img.onload = () => {
+    canvas.width = img.width
+    canvas.height = img.height
+    ctx.drawImage(img, 0, 0)
+    URL.revokeObjectURL(img.src)
+  }
+  img.onerror = (e) => {
+    console.error('[渲染] 图片加载失败:', e)
+  }
+  img.src = URL.createObjectURL(blob)
+}
+
+// 停止会话
+const stopSession = async () => {
   // 停止摄像头流
   if (cameraStream.value) {
     stopStream(cameraStream.value)
     cameraStream.value = null
   }
 
+  if (videoElement) {
+    videoElement.srcObject = null
+    videoElement = null
+  }
+
+  sendFrameCanvas = null
+  sendFrameCtx = null
   cameraStartTime = null
   stopFpsCounter()
-}
-
-// 停止会话
-const stopSession = async () => {
-  stopVideoProcessing()
 
   if (ws) {
     ws.close()
@@ -414,38 +433,10 @@ const stopSession = async () => {
 
   videoId.value = ''
   isConnected.value = false
-  detectionResult.value = { detected: false, persons: [], events: [] }
-}
-
-// 渲染检测框
-const renderFrame = (data) => {
-  if (!canvasRef.value || !data.persons?.length) return
-
-  const ctx = canvasRef.value.getContext('2d')
-  const width = canvasRef.value.width
-  const height = canvasRef.value.height
-
-  // 清空画布
-  ctx.clearRect(0, 0, width, height)
-
-  // 绘制检测框
-  data.persons.forEach(person => {
-    const [x1, y1, x2, y2] = person.box || [0, 0, 100, 100]
-    const scaleX = width / 640
-    const scaleY = height / 480
-
-    const color = person.class_name === 'fall' || person.class_name === 'fallen' ? '#f56c6c' :
-                  person.class_name === 'stillness' || person.class_name === 'falling' ? '#e6a23c' : '#67c23a'
-
-    ctx.strokeStyle = color
-    ctx.lineWidth = 2
-    ctx.strokeRect(x1 * scaleX, y1 * scaleY, (x2 - x1) * scaleX, (y2 - y1) * scaleY)
-
-    ctx.fillStyle = color
-    ctx.font = '14px Arial'
-    ctx.fillText(`${getPersonLabel(person.class_name)} ${(person.confidence * 100).toFixed(0)}%`,
-                 x1 * scaleX, y1 * scaleY - 5)
-  })
+  detectionResult.value = { persons: [] }
+  processedCount.value = 0
+  latencyMs.value = 0
+  skippedCount.value = 0
 }
 
 onMounted(() => {
@@ -453,7 +444,6 @@ onMounted(() => {
     canvasRef.value.width = 640
     canvasRef.value.height = 480
   }
-  // 页面加载时获取摄像头列表
   loadCameraDevices()
 })
 
@@ -513,9 +503,18 @@ onUnmounted(() => {
   gap: 12px;
 }
 
-.fps-info, .duration-info {
+.fps-info, .duration-info, .processed-info, .latency-info, .skipped-info {
   color: #999;
   font-size: 12px;
+}
+
+.latency-info.latency-high {
+  color: #f56c6c;
+  font-weight: 500;
+}
+
+.skipped-info {
+  color: #e6a23c;
 }
 
 .video-card, .info-card {
@@ -554,25 +553,11 @@ onUnmounted(() => {
   margin-bottom: 15px;
 }
 
-.detection-view {
-  width: 100%;
-  height: 100%;
-  position: relative;
-}
-
-.video-player {
+.frame-canvas {
   width: 100%;
   height: 100%;
   object-fit: contain;
-}
-
-.overlay-canvas {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
+  display: block;
 }
 
 .overlay-info {
@@ -640,7 +625,7 @@ onUnmounted(() => {
   font-size: 12px;
 }
 
-.confidence, .duration, .time {
+.person-id, .time {
   font-size: 12px;
   color: #666;
 }
