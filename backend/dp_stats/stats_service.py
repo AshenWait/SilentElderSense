@@ -120,3 +120,37 @@ class StatsService:
         }
 
         return {"value": noisy_stats, "display": display_stats, "source": "fresh_dp"}
+
+    def get_private_daily_trend(
+        self,
+        user_id: str,
+        query_key: str,
+        daily_data: dict[str, dict[str, int]],
+        epsilon: float,
+        now: datetime,
+        check_budget: bool = True,
+    ) -> dict:
+        """为每日趋势加噪"""
+        cached = self.cache.get(user_id, "trend", query_key, now)
+        if cached is not None:
+            return {"value": cached, "source": "cache"}
+
+        if check_budget:
+            today = now.date()
+            if not self.budget_manager.can_spend(user_id, epsilon, today):
+                raise ValueError("Privacy budget exceeded")
+
+        params = DPParams(epsilon=epsilon, sensitivity=1.0)
+        noisy_daily = {}
+
+        for date_key, type_counts in daily_data.items():
+            filled_counts = {t: type_counts.get(t, 0) for t in KNOWN_TYPES}
+            noisy_daily[date_key] = privatize_counts_dict(filled_counts, params)
+
+        if check_budget:
+            today = now.date()
+            self.budget_manager.spend(user_id, epsilon, today)
+
+        self.cache.set(user_id, "trend", query_key, noisy_daily, now)
+
+        return {"value": noisy_daily, "source": "fresh_dp"}

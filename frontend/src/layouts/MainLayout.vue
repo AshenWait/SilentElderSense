@@ -106,12 +106,14 @@ import { computed, onMounted, onUnmounted, ref, h } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useEventsStore } from '@/stores/events'
+import { usePlatformStore } from '@/stores/platform'
 import { ElMessageBox, ElMessage } from 'element-plus'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const eventsStore = useEventsStore()
+const platformStore = usePlatformStore()
 
 // 菜单项
 const mainMenuItems = computed(() => {
@@ -164,6 +166,15 @@ const mainMenuItems = computed(() => {
         h('rect', { x: '2', y: '3', width: '20', height: '14', rx: '2', ry: '2' }),
         h('line', { x1: '8', y1: '21', x2: '16', y2: '21' }),
         h('line', { x1: '12', y1: '17', x2: '12', y2: '21' })
+      ])
+    },
+    {
+      path: '/community-select',
+      label: '社区管理',
+      roles: ['platform'],
+      icon: h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' }, [
+        h('path', { d: 'M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z' }),
+        h('polyline', { points: '9 22 9 12 15 12 15 22' })
       ])
     },
     {
@@ -249,6 +260,9 @@ const handleLogout = () => {
 onMounted(() => {
   updateTime()
   timeInterval = setInterval(updateTime, 1000)
+  if (authStore.isPlatform) {
+    platformStore.fetchCommunities()
+  }
 })
 
 onUnmounted(() => {

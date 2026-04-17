@@ -239,6 +239,26 @@ class AlertService:
 
         db.commit()
 
+    def simulate_call_120(self, user_id: int, event_id: int = None, duration: float = 0):
+        """
+        模拟拨打 120 急救电话（演示用）
+
+        真实接入时替换为此方法内的 HTTP 调用，例如：
+            requests.post('https://api.example.com/emergency/call', json={...})
+
+        Args:
+            user_id: 用户ID
+            event_id: 关联事件ID
+            duration: 事件持续时长（秒）
+        """
+        import logging
+        logger = logging.getLogger('emergency_120')
+        logger.info(
+            f"[模拟拨打120] user_id={user_id}, event_id={event_id}, "
+            f"duration={duration:.1f}s — 跌倒高风险持续超过40秒，触发紧急呼叫"
+        )
+        print(f"[紧急呼叫] 模拟拨打120 — 用户 {user_id}, 持续 {duration:.1f}s")
+
     def acknowledge_alert(self, alert_id: int, user_id: int) -> bool:
         """确认告警"""
         db = next(get_db())

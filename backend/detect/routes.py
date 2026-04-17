@@ -351,6 +351,10 @@ async def close_session(video_id: str):
                         risk_level=ch.risk_level,
                         duration=duration
                     )
+
+                    # 跌倒高风险持续超过40秒 → 模拟拨打120
+                    if ch.risk_level == 'HIGH' and ch.event_type == 'FALLEN' and duration >= 40:
+                        alert_service.simulate_call_120(user_id, duration=duration)
                 except Exception as e:
                     print(f"[WARN] 告警触发失败: {e}")
 

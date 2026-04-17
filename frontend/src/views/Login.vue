@@ -249,7 +249,13 @@ const handleSubmit = async () => {
             type: 'success',
             customClass: 'custom-message'
           })
-          router.push('/dashboard')
+          if (authStore.isPlatform) {
+            router.push('/community-select')
+          } else if (authStore.isAdmin) {
+            router.push('/admin-platform')
+          } else {
+            router.push('/dashboard')
+          }
         }
       } catch (error) {
         ElMessage({

@@ -15,11 +15,10 @@
       <div class="org-card">
         <div class="org-header">
           <h3>{{ orgInfo.name }}</h3>
-          <span class="org-status" :class="orgInfo.status">{{ orgInfo.status === 'active' ? '运营中' : '已停用' }}</span>
         </div>
-        <p class="org-desc">{{ orgInfo.description || '暂无描述' }}</p>
+        <p class="org-desc" v-if="orgInfo.description">{{ orgInfo.description }}</p>
         <div class="org-meta">
-          <span>社区组: {{ communities.length }} 个</span>
+          <span>社区组: {{ platformStore.communities.length }} 个</span>
           <span>覆盖用户: {{ stats.member_count || 0 }} 人</span>
         </div>
       </div>
@@ -102,7 +101,7 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="c in communities" :key="c.id" class="table-row">
+                <tr v-for="c in platformStore.communities" :key="c.id" class="table-row">
                   <td>{{ c.name }}</td>
                   <td>{{ c.address || '-' }}</td>
                   <td>{{ c.member_count }} 人</td>
@@ -115,7 +114,7 @@
                 </tr>
               </tbody>
             </table>
-            <div v-if="communities.length === 0" class="empty-state">
+            <div v-if="platformStore.communities.length === 0" class="empty-state">
               <p>暂无社区组数据</p>
             </div>
           </div>
@@ -126,12 +125,16 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick } from 'vue'
-import { getMyProfile, getMyCommunities, getPlatformStats, getPlatformDailyTrend } from '@/api/platform'
+import { ref, computed, onMounted, nextTick, watch } from 'vue'
+import {
+  getMyProfile, getPlatformStats, getPlatformDailyTrend,
+} from '@/api/platform'
+import { usePlatformStore } from '@/stores/platform'
 import * as echarts from 'echarts'
 
+const platformStore = usePlatformStore()
+
 const orgInfo = ref(null)
-const communities = ref([])
 const stats = ref({ total: 0, by_type: {}, by_risk: {}, by_status: {}, trends: {}, member_count: 0 })
 const trendDays = ref(7)
 
@@ -159,22 +162,14 @@ async function loadOrg() {
     const res = await getMyProfile()
     orgInfo.value = {
       name: res.org_name || res.username,
-      description: res.org_description,
-      status: 'active',
+      description: res.org_description || null,
     }
-  } catch (e) { console.error(e) }
-}
-
-async function loadCommunities() {
-  try {
-    const res = await getMyCommunities()
-    communities.value = Array.isArray(res.data) ? res.data : res
   } catch (e) { console.error(e) }
 }
 
 async function loadStats() {
   try {
-    stats.value = await getPlatformStats()
+    stats.value = await getPlatformStats(trendDays.value, platformStore.selectedGroupId)
     await nextTick()
     renderCharts()
   } catch (e) { console.error(e) }
@@ -182,14 +177,13 @@ async function loadStats() {
 
 async function loadDailyTrend() {
   try {
-    const res = await getPlatformDailyTrend(trendDays.value)
+    const res = await getPlatformDailyTrend(trendDays.value, platformStore.selectedGroupId)
     renderTrendChart(res)
   } catch (e) { console.error(e) }
 }
 
 function renderCharts() {
   const s = stats.value
-  // 事件类型饼图
   if (typeChartRef.value) {
     const chart = echarts.init(typeChartRef.value)
     const typeData = Object.entries(s.by_type || {}).map(([k, v]) => ({
@@ -205,7 +199,6 @@ function renderCharts() {
       }]
     })
   }
-  // 风险等级柱状图
   if (riskChartRef.value) {
     const chart = echarts.init(riskChartRef.value)
     const categories = Object.keys(riskLabels)
@@ -243,9 +236,13 @@ function renderTrendChart(data) {
   })
 }
 
+watch(() => platformStore.selectedGroupId, () => {
+  loadStats()
+  loadDailyTrend()
+})
+
 onMounted(() => {
   loadOrg()
-  loadCommunities()
   loadStats()
   loadDailyTrend()
 })

@@ -7,6 +7,11 @@ export const updatePlatformUser = (userId, data) => api.put(`/platform/users/${u
 export const listAllUsers = () => api.get('/users')
 export const adminResetPassword = (data) => api.post('/admin/reset-password', data)
 
+// ── 管理员：用户管理 ──
+
+export const adminCreateUser = (data) => api.post('/admin/users', data)
+export const adminUpdateUser = (userId, data) => api.put(`/admin/users/${userId}`, data)
+
 // ── 管理员：社区组 ──
 
 export const createGroup = (platformUserId, data) => api.post(`/platform/users/${platformUserId}/groups`, data)
@@ -18,8 +23,10 @@ export const suspendGroup = (groupId) => api.delete(`/platform/groups/${groupId}
 
 export const getMyProfile = () => api.get('/platform/profile')
 export const getMyCommunities = () => api.get('/platform/communities')
-export const getPlatformStats = (days = 7) => api.get('/platform/stats', { params: { days } })
-export const getPlatformDailyTrend = (days = 7) => api.get('/platform/stats/daily', { params: { days } })
+export const getPlatformStats = (days = 7, communityGroupId = null) =>
+  api.get('/platform/stats', { params: { days, ...(communityGroupId && { community_group_id: communityGroupId }) } })
+export const getPlatformDailyTrend = (days = 7, communityGroupId = null) =>
+  api.get('/platform/stats/daily', { params: { days, ...(communityGroupId && { community_group_id: communityGroupId }) } })
 
 // ── 普通用户：社区组选择 ──
 

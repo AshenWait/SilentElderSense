@@ -10,7 +10,12 @@ const routes = [
   },
   {
     path: '/',
-    redirect: '/dashboard',
+    redirect: () => {
+      const authStore = useAuthStore()
+      if (authStore.isPlatform) return '/community-select'
+      if (authStore.isAdmin) return '/admin-platform'
+      return '/dashboard'
+    },
     component: () => import('@/layouts/MainLayout.vue'),
     meta: { requiresAuth: true },
     children: [
@@ -43,6 +48,12 @@ const routes = [
         name: 'System',
         component: () => import('@/views/System.vue'),
         meta: { title: '系统设置' }
+      },
+      {
+        path: 'community-select',
+        name: 'CommunitySelect',
+        component: () => import('@/views/CommunitySelect.vue'),
+        meta: { title: '社区选择', role: 'platform' }
       },
       {
         path: 'platform',
